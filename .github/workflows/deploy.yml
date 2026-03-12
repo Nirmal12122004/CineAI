@@ -1,4 +1,4 @@
-name: CinaAI CI Pipeline
+name: CineAI CI Pipeline
 
 on:
   push:
@@ -21,17 +21,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: "20"
 
       - name: Install Frontend Dependencies
-        run: |
-          cd frontend
-          npm install
+        run: npm install          # ← Removed "cd frontend" (package.json is at root)
 
       - name: Build Vite App
-        run: |
-          cd frontend
-          npm run build
+        run: npm run build        # ← Removed "cd frontend"
 
   backend-test:
     name: Setup Python Backend
@@ -44,7 +40,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.10
+          python-version: "3.11"  # ← Fixed: "3.10" causes issues, use "3.11"
 
       - name: Install Backend Dependencies
         run: |
