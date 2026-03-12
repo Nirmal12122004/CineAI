@@ -36,7 +36,7 @@ export async function fetchRecommendations(
   }
 
   const response = await fetch(
-    `http://localhost:8000/recommend/${encodeURIComponent(query)}`
+    `https://cineai-backend-8ark.onrender.com/recommend/${encodeURIComponent(query)}`
   );
 
   if (!response.ok) {
@@ -51,10 +51,8 @@ export async function fetchRecommendations(
     throw new Error(`No movie found matching "${movieName}".`);
   }
 
-  // Convert API response to Movie objects
   const recommendations: Movie[] = data.recommendations.map(
     (movie: any, index: number) => {
-
       const yearMatch = movie.title?.match(/\((\d{4})\)/);
       const year = movie.year || (yearMatch ? parseInt(yearMatch[1]) : undefined);
 
@@ -69,7 +67,6 @@ export async function fetchRecommendations(
     }
   );
 
-  // Try to get searched movie from backend
   let inputMovie: Movie | null = null;
 
   if (data.input) {
@@ -84,11 +81,8 @@ export async function fetchRecommendations(
       year: year,
       poster: data.input.poster,
     };
-  } 
-  else {
-    // fallback if backend doesn't send searched movie
+  } else {
     const first = recommendations[0];
-
     inputMovie = {
       id: 0,
       title: movieName,

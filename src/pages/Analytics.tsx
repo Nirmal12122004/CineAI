@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { ExternalLink } from "lucide-react";
 
 const Analytics = () => {
   return (
@@ -37,13 +36,12 @@ const Analytics = () => {
                 Power BI Dashboard
               </span>
             </div>
-
           </div>
 
           {/* Dashboard Image */}
           <div className="w-full p-4">
             <img
-              src="/CineAI/CineAI Dashboard.png"
+              src={`${import.meta.env.BASE_URL}CineAI Dashboard.png`}
               alt="CineAI Dashboard"
               className="w-full rounded-lg"
             />

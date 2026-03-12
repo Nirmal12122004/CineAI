@@ -5,7 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: "/CineAI/",              // ← Moved to top level
+  base: "/CineAI/",
   server: {
     host: "::",
     port: 8080,
@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:5000",
+        target: "https://cineai-backend-8ark.onrender.com",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    outDir: "dist",              // ← base removed from here
+    outDir: "dist",
     sourcemap: false,
     rollupOptions: {
       output: {
