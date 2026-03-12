@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    base : '/CineAI/'
+    base: '/CineAI/',   // ← Added missing comma here
     outDir: "dist",
     sourcemap: false,
     rollupOptions: {
