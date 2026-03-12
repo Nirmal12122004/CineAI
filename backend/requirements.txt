@@ -7,3 +7,4 @@ python-multipart
 rapidfuzz
 requests
 beautifulsoup4
+httpx
