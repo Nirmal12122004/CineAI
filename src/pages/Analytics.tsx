@@ -43,7 +43,7 @@ const Analytics = () => {
           {/* Dashboard Image */}
           <div className="w-full p-4">
             <img
-              src="/CineAI Dashboard.png"
+              src="/CineAI/CineAI Dashboard.png"
               alt="CineAI Dashboard"
               className="w-full rounded-lg"
             />
