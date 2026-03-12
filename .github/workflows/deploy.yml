@@ -14,6 +14,9 @@ jobs:
     name: Build React Frontend
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -24,10 +27,20 @@ jobs:
           node-version: "20"
 
       - name: Install Frontend Dependencies
-        run: npm install          # ← Removed "cd frontend" (package.json is at root)
+        run: npm install
 
       - name: Build Vite App
-        run: npm run build        # ← Removed "cd frontend"
+        run: npm run build
+
+      - name: Add .nojekyll file
+        run: touch dist/.nojekyll
+
+      - name: Deploy to GitHub Pages    # ← This was completely missing!
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
 
   backend-test:
     name: Setup Python Backend
@@ -40,7 +53,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"  # ← Fixed: "3.10" causes issues, use "3.11"
+          python-version: "3.11"
 
       - name: Install Backend Dependencies
         run: |
