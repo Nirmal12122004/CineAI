@@ -1,3 +1,4 @@
+import os
 import pickle
 import httpx
 import asyncio
@@ -17,8 +18,13 @@ poster_cache: dict[str, tuple] = {}
 # ------------------------------------
 # Load models at startup
 # ------------------------------------
-movies = pickle.load(open(r"D:\Nirmal(AIT)\Sem-8\CineAI - AI based movie recommendation system\backend\models\movies.pkl", "rb"))
-similarity = pickle.load(open(r"D:\Nirmal(AIT)\Sem-8\CineAI - AI based movie recommendation system\backend\models\similarity.pkl", "rb"))
+
+# ✅ Relative path - works on Render, Windows, Linux everywhere
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, "..", "models")
+
+movies = pickle.load(open(os.path.join(MODELS_DIR, "movies.pkl"), "rb"))
+similarity = pickle.load(open(os.path.join(MODELS_DIR, "similarity.pkl"), "rb"))
 
 movies.reset_index(drop=True, inplace=True)
 
@@ -43,7 +49,6 @@ _genres: list = movies["genres"].tolist()
 def _get_client() -> httpx.AsyncClient:
     global _async_client
     if _async_client is None or _async_client.is_closed:
-        # Connection pool with keep-alive handles bursts efficiently
         _async_client = httpx.AsyncClient(
             limits=httpx.Limits(max_connections=40, max_keepalive_connections=20),
             timeout=httpx.Timeout(4.0),
@@ -55,13 +60,11 @@ def _get_client() -> httpx.AsyncClient:
 # Async TMDB fetch
 # ------------------------------------
 async def _fetch_movie_details_async(title: str) -> tuple:
-    # Only return cached result if we actually got a poster
     if title in poster_cache and poster_cache[title][0] is not None:
         return poster_cache[title]
 
     client = _get_client()
 
-    # Try up to 2 times in case of transient network error
     for attempt in range(2):
         try:
             resp = await client.get(
@@ -81,10 +84,9 @@ async def _fetch_movie_details_async(title: str) -> tuple:
                 return poster, year
         except Exception:
             if attempt == 0:
-                await asyncio.sleep(0.3)  # brief pause before retry
+                await asyncio.sleep(0.3)
             continue
 
-    # Only cache None if both attempts failed — don't permanently block retries
     return None, None
 
 
@@ -92,13 +94,11 @@ async def _fetch_movie_details_async(title: str) -> tuple:
 # Vectorised hybrid scoring (numpy)
 # ------------------------------------
 def _compute_hybrid_scores(index: int, movie_name_lower: str) -> np.ndarray:
-    """Return final hybrid scores for all movies as a numpy array."""
-    content_scores = similarity[index].astype(np.float32)   # shape (N,)
+    content_scores = similarity[index].astype(np.float32)
     content_weight = 0.85 * content_scores
 
     popularity_boost = 0.05 * (_popularity_scores / _max_pop)
 
-    # Title boost — vectorised with list comprehension (faster than per-row iloc)
     title_boost = np.array(
         [0.3 if movie_name_lower in t else 0.0 for t in _titles_lower],
         dtype=np.float32,
@@ -113,7 +113,6 @@ def _compute_hybrid_scores(index: int, movie_name_lower: str) -> np.ndarray:
 async def _recommend_async(movie_name: str) -> dict:
     movie_name = movie_name.lower().strip()
 
-    # Fuzzy match
     best_match = process.extractOne(movie_name, titles, scorer=fuzz.WRatio)
     if not best_match or best_match[1] < 65:
         return {"input": None, "recommendations": []}
@@ -121,19 +120,15 @@ async def _recommend_async(movie_name: str) -> dict:
     matched_title = best_match[0]
     index = int(titles_lower_series[titles_lower_series == matched_title].index[0])
 
-    # Hybrid scores (fully vectorised — no Python loop over all movies)
     hybrid_scores = _compute_hybrid_scores(index, movie_name)
 
-    # Top 33 indices (skip index 0 which is the movie itself)
-    top_indices = np.argpartition(hybrid_scores, -33)[-33:]          # fast partial sort
-    top_indices = top_indices[np.argsort(hybrid_scores[top_indices])[::-1]]  # sort top 33
+    top_indices = np.argpartition(hybrid_scores, -33)[-33:]
+    top_indices = top_indices[np.argsort(hybrid_scores[top_indices])[::-1]]
     recommendation_indices = [int(i) for i in top_indices if int(i) != index][:32]
 
-    # All TMDB calls fire concurrently (input movie + all recommendations)
     input_title = _original_titles[index]
     all_titles_to_fetch = [input_title] + [_original_titles[i] for i in recommendation_indices]
 
-    # Fire all API calls at once
     results = await asyncio.gather(
         *[_fetch_movie_details_async(t) for t in all_titles_to_fetch]
     )
@@ -164,14 +159,10 @@ async def _recommend_async(movie_name: str) -> dict:
 
 # ------------------------------------
 # Public API — sync wrapper
-# (drop-in replacement for original recommend())
 # ------------------------------------
 def recommend(movie_name: str) -> dict:
-    """Sync entry point. Works whether or not an event loop is running."""
     try:
         loop = asyncio.get_running_loop()
-        # Inside an async framework (FastAPI, etc.) — return a coroutine instead
-        # Callers should await recommend_async() directly in that case
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, _recommend_async(movie_name))
@@ -181,5 +172,4 @@ def recommend(movie_name: str) -> dict:
 
 
 async def recommend_async(movie_name: str) -> dict:
-    """Async entry point — use this directly if your server is async (FastAPI)."""
     return await _recommend_async(movie_name)
