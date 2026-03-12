@@ -5,6 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  base: "/CineAI/",              // ← Moved to top level
   server: {
     host: "::",
     port: 8080,
@@ -26,8 +27,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    base: '/CineAI/',   // ← Added missing comma here
-    outDir: "dist",
+    outDir: "dist",              // ← base removed from here
     sourcemap: false,
     rollupOptions: {
       output: {
