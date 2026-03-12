@@ -3,7 +3,7 @@ import gdown
 
 # ✅ Replace these with your actual Google Drive file IDs
 MOVIES_FILE_ID = "1iiATIfV2O51b1u4N9y0GJHNVX_ZWyKs9"
-SIMILARITY_FILE_ID = "1XZV8_fjvKP8qqf0A1xc8_QErJoKHWJIm"
+SIMILARITY_FILE_ID = "1cLa072fDzh0JX8tsdr9VR5BWADPSyUKL"
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
