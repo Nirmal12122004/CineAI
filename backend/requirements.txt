@@ -8,4 +8,5 @@ rapidfuzz
 requests
 beautifulsoup4
 httpx
+gdown
 
