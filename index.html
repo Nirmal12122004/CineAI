@@ -17,6 +17,20 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@Lovable" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <script type="text/javascript">
+       (function(l) {
+          if (l.search[1] === '/' ) {
+             var decoded = l.search.slice(1).split('&').map(function(s) {
+          return s.replace(/~and~/g, '&')
+              }).join('?');
+          window.history.replaceState(null, null,
+          l.pathname.slice(0, -1) + decoded + l.hash
+        );
+        }
+          }(window.location))
+     </script>
+
     <script type="module" crossorigin src="/CineAI/assets/index-Cni1v7B4.js"></script>
     <link rel="modulepreload" crossorigin href="/CineAI/assets/vendor-N--QU9DW.js">
     <link rel="stylesheet" crossorigin href="/CineAI/assets/index-C93ZFGXz.css">
