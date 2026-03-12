@@ -113,7 +113,7 @@ CinaAI
 ## 1️⃣ Clone Repository
 
 ```
-git clone https://github.com/YOUR_USERNAME/CinaAI.git
+git clone https://github.com/Nirmal12122004/CinaAI.git
 cd CinaAI
 ```
 
@@ -140,7 +140,7 @@ http://localhost:5173
 ```
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
 
 Backend runs on:
