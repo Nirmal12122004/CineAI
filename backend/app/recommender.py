@@ -4,8 +4,13 @@ import httpx
 import asyncio
 import numpy as np
 from rapidfuzz import process, fuzz
+from dotenv import load_dotenv
 
-TMDB_API_KEY = "03fca15cd9a3eefa92614069b4832b46"
+# ✅ Load .env file for local development (ignored on Render)
+load_dotenv()
+
+# ✅ API key hidden - loaded from environment variable
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 TMDB_BASE_URL = "https://api.themoviedb.org/3/search/movie"
 TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w500"
 
