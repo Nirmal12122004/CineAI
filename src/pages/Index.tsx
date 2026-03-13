@@ -18,7 +18,7 @@ const [error, setError] = useState("");
 const [searched, setSearched] = useState(false);
 const [videoKey, setVideoKey] = useState<string | null>(null);
 
-const TMDB_API_KEY = "03fca15cd9a3eefa92614069b4832b46";
+const TMDB_API_KEY = "33a1bdb6830ef7bf349e480fc07cef3c";
 
 const handleRecommend = async (movieName: string) => {
 
