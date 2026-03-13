@@ -93,22 +93,21 @@ if (navigator.clipboard && window.isSecureContext) {
 navigator.clipboard.writeText(title)
 .then(() => {
 alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
+window.open(url, "_blank");  // ← After alert
 })
 .catch(() => {
-fallbackCopy(title);
+fallbackCopy(title, url);
 });
 
 } else {
 
-fallbackCopy(title);
+fallbackCopy(title, url);
 
 }
 
-window.open(url, "_blank");
-
 };
 
-function fallbackCopy(text: string) {
+function fallbackCopy(text: string, url: string) {
 
 const textarea = document.createElement("textarea");
 
@@ -124,10 +123,12 @@ try {
 
 document.execCommand("copy");
 alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
+window.open(url, "_blank");  // ← After alert
 
 } catch {
 
 alert("Copy failed. Movie name: " + text);
+window.open(url, "_blank");
 
 }
 
