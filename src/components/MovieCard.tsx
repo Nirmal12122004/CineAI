@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 import type { Movie } from "@/lib/mockData";
 
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
+
 function getRatingColor(rating: number) {
   if (rating >= 4.5) return "text-rating-high";
   if (rating >= 3.5) return "text-rating-mid";
@@ -19,75 +21,43 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
 
   const [videoKey, setVideoKey] = useState<string | null>(null);
 
-  const TMDB_API_KEY = "03fca15cd9a3eefa92614069b4832b46";
-
-  // 🎬 Trailer Button (Fetch from TMDB)
+  // ✅ Trailer via backend - TMDB key hidden
   const handleTrailer = async () => {
-  try {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/trailer/${encodeURIComponent(movie.title)}`
+      );
+      const data = await res.json();
 
-    // Step 1: Search movie by title
-    const searchRes = await fetch(
-      `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(movie.title)}`
-    );
-
-    const searchData = await searchRes.json();
-
-    if (!searchData.results || searchData.results.length === 0) {
-      alert("Movie not found in TMDB");
-      return;
+      if (data.trailer_key) {
+        setVideoKey(data.trailer_key);
+      } else {
+        alert("Trailer not available");
+      }
+    } catch (error) {
+      console.error("Trailer error:", error);
+      alert("Failed to fetch trailer. Please try again.");
     }
-
-    // Step 2: Get TMDB ID
-    const tmdbId = searchData.results[0].id;
-
-    // Step 3: Fetch trailer
-    const videoRes = await fetch(
-      `https://api.themoviedb.org/3/movie/${tmdbId}/videos?api_key=${TMDB_API_KEY}`
-    );
-
-    const videoData = await videoRes.json();
-
-    const trailer = videoData.results.find(
-      (vid: any) => vid.type === "Trailer" && vid.site === "YouTube"
-    );
-
-    if (trailer) {
-      setVideoKey(trailer.key);
-    } else {
-      alert("Trailer not available");
-    }
-
-  } catch (error) {
-    console.error("Trailer error:", error);
- }
   };
 
-  // ⬇ Download Button
+  // ✅ Alert first, then redirect
   const handleDownload = async () => {
-
     const url = "https://vegamoviesdl.com";
 
     try {
       await navigator.clipboard.writeText(movie.title);
-
       alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
-
+      window.open(url, "_blank");  // ← After alert
     } catch {
-
       const textArea = document.createElement("textarea");
       textArea.value = movie.title;
-
       document.body.appendChild(textArea);
-
       textArea.select();
       document.execCommand("copy");
-
       document.body.removeChild(textArea);
-
       alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
+      window.open(url, "_blank");  // ← After alert
     }
-
-    window.open(url, "_blank");
   };
 
   return (
