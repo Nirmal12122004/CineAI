@@ -9,6 +9,9 @@ import { fetchRecommendations, fetchMetrics, type Movie } from "@/lib/mockData";
 
 const metrics = fetchMetrics();
 
+// ✅ No TMDB API key here - all handled by backend
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
+
 const Index = () => {
 
 const [movies, setMovies] = useState<Movie[]>([]);
@@ -17,8 +20,6 @@ const [loading, setLoading] = useState(false);
 const [error, setError] = useState("");
 const [searched, setSearched] = useState(false);
 const [videoKey, setVideoKey] = useState<string | null>(null);
-
-const TMDB_API_KEY = "33a1bdb6830ef7bf349e480fc07cef3c";
 
 const handleRecommend = async (movieName: string) => {
 
@@ -47,6 +48,7 @@ setLoading(false);
 
 };
 
+// ✅ Trailer now calls backend - TMDB key never exposed in frontend
 const handleTrailer = async () => {
 
 if (!inputMovie) {
@@ -56,37 +58,21 @@ return;
 
 try {
 
-const searchRes = await fetch(
-`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(inputMovie.title)}`
+const res = await fetch(
+  `${BACKEND_URL}/trailer/${encodeURIComponent(inputMovie.title)}`
 );
 
-const searchData = await searchRes.json();
+const data = await res.json();
 
-if (!searchData.results || searchData.results.length === 0) {
-alert("Movie not found in TMDB");
-return;
-}
-
-const tmdbId = searchData.results[0].id;
-
-const videoRes = await fetch(
-`https://api.themoviedb.org/3/movie/${tmdbId}/videos?api_key=${TMDB_API_KEY}`
-);
-
-const videoData = await videoRes.json();
-
-const trailer = videoData.results.find(
-(vid: any) => vid.type === "Trailer" && vid.site === "YouTube"
-);
-
-if (trailer) {
-setVideoKey(trailer.key);
+if (data.trailer_key) {
+  setVideoKey(data.trailer_key);
 } else {
-alert("Trailer not available");
+  alert("Trailer not available");
 }
 
 } catch (error) {
 console.error("Trailer error:", error);
+alert("Failed to fetch trailer. Please try again.");
 }
 
 };
