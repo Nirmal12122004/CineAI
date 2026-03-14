@@ -1,3 +1,5 @@
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
+
 export interface Movie {
   id: number;
   title: string;
@@ -25,6 +27,13 @@ export const mockMetrics: ModelMetrics = {
   test_samples: 20004,
 };
 
+// ✅ Clean query - handles ironman→iron man, iron-man→iron man, IronMan→Iron Man
+function cleanQuery(movieName: string): string {
+  let cleaned = movieName.replace(/[-_]/g, " ").trim();
+  cleaned = cleaned.replace(/(?<=[a-z])(?=[A-Z])/g, " ");
+  return cleaned;
+}
+
 export async function fetchRecommendations(
   movieName: string
 ): Promise<{ input: Movie | null; recommendations: Movie[] }> {
@@ -35,20 +44,37 @@ export async function fetchRecommendations(
     throw new Error("Please enter a movie name.");
   }
 
-  const response = await fetch(
-    `https://cineai-backend-8ark.onrender.com/recommend/${encodeURIComponent(query)}`
+  // ✅ Try original query first, then cleaned version
+  const queries = [query, cleanQuery(query)].filter(
+    (q, i, arr) => arr.indexOf(q) === i  // deduplicate
   );
 
-  if (!response.ok) {
-    throw new Error(
-      "Movie not found. Try full title like 'Iron Man (2008)'."
-    );
+  let data: any = null;
+
+  for (const q of queries) {
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/recommend/${encodeURIComponent(q)}`
+      );
+
+      if (!response.ok) continue;
+
+      const result = await response.json();
+
+      if (result.recommendations && result.recommendations.length > 0) {
+        data = result;
+        break;
+      }
+    } catch {
+      continue;
+    }
   }
 
-  const data = await response.json();
-
-  if (!data.recommendations || data.recommendations.length === 0) {
-    throw new Error(`No movie found matching "${movieName}".`);
+  // ✅ Better error message
+  if (!data || !data.recommendations || data.recommendations.length === 0) {
+    throw new Error(
+      `"${movieName}" not found. Please check the spelling or try another movie title.`
+    );
   }
 
   const recommendations: Movie[] = data.recommendations.map(

@@ -128,7 +128,9 @@ async def _recommend_async(movie_name: str, year_from: int | None = None, year_t
     movie_name = movie_name.lower().strip()
 
     best_match = process.extractOne(movie_name, titles, scorer=fuzz.WRatio)
-    if not best_match or best_match[1] < 65:
+
+    # ✅ Lowered threshold from 65 to 50 - handles "inception", short titles etc.
+    if not best_match or best_match[1] < 50:
         return {"input": None, "recommendations": []}
 
     matched_title = best_match[0]
@@ -136,13 +138,11 @@ async def _recommend_async(movie_name: str, year_from: int | None = None, year_t
 
     hybrid_scores = _compute_hybrid_scores(index, movie_name)
 
-    # Get more results when filtering by year so we have enough after filter
     fetch_count = 100 if (year_from or year_to) else 33
 
     top_indices = np.argpartition(hybrid_scores, -fetch_count)[-fetch_count:]
     top_indices = top_indices[np.argsort(hybrid_scores[top_indices])[::-1]]
 
-    # Filter by year if specified
     filtered_indices = []
     for i in top_indices:
         idx = int(i)
@@ -157,7 +157,7 @@ async def _recommend_async(movie_name: str, year_from: int | None = None, year_t
             if year_to and year > year_to:
                 continue
         filtered_indices.append(idx)
-        if len(filtered_indices) >= 20:  # limit to 20 results
+        if len(filtered_indices) >= 20:
             break
 
     input_title = _original_titles[index]
