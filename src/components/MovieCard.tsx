@@ -182,7 +182,7 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
       {/* 🎬 Movie Details Modal */}
       {showDetails && (
         <MovieDetailsModal
-          tmdbId={movie.id}
+          movieTitle={movie.title}
           onClose={() => setShowDetails(false)}
         />
       )}

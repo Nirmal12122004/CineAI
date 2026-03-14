@@ -216,6 +216,81 @@ async def get_trailer(movie_name: str):
             return {"trailer_key": None, "error": str(e)}
 
 
+# ✅ Movie details by title
+@app.get("/movie-details-by-title/{movie_title}")
+async def get_movie_details_by_title(movie_title: str):
+    async with httpx.AsyncClient() as client:
+        try:
+            queries = _clean_query(movie_title)
+
+            # Search TMDB to get correct movie ID
+            tmdb_id = None
+            for query in queries:
+                search_resp = await client.get(
+                    "https://api.themoviedb.org/3/search/movie",
+                    params={"api_key": TMDB_API_KEY, "query": query},
+                    timeout=5.0,
+                )
+                results = search_resp.json().get("results", [])
+                if results:
+                    tmdb_id = results[0]["id"]
+                    break
+
+            if not tmdb_id:
+                return {"error": "Movie not found"}
+
+            # Fetch details + credits concurrently
+            details_resp, credits_resp = await asyncio.gather(
+                client.get(
+                    f"https://api.themoviedb.org/3/movie/{tmdb_id}",
+                    params={"api_key": TMDB_API_KEY},
+                    timeout=5.0,
+                ),
+                client.get(
+                    f"https://api.themoviedb.org/3/movie/{tmdb_id}/credits",
+                    params={"api_key": TMDB_API_KEY},
+                    timeout=5.0,
+                ),
+            )
+
+            d = details_resp.json()
+            c = credits_resp.json()
+
+            cast = [
+                {
+                    "name": p["name"],
+                    "character": p["character"],
+                    "photo": f"https://image.tmdb.org/t/p/w185{p['profile_path']}" if p.get("profile_path") else None,
+                }
+                for p in c.get("cast", [])[:6]
+            ]
+
+            director = next(
+                (p["name"] for p in c.get("crew", []) if p["job"] == "Director"),
+                "Unknown"
+            )
+
+            return {
+                "id": d.get("id"),
+                "title": d.get("title"),
+                "overview": d.get("overview"),
+                "poster": f"https://image.tmdb.org/t/p/w500{d['poster_path']}" if d.get("poster_path") else None,
+                "backdrop": f"https://image.tmdb.org/t/p/w1280{d['backdrop_path']}" if d.get("backdrop_path") else None,
+                "release_date": d.get("release_date"),
+                "runtime": d.get("runtime"),
+                "vote_average": round(d.get("vote_average", 0) / 2, 2),
+                "genres": [g["name"] for g in d.get("genres", [])],
+                "director": director,
+                "cast": cast,
+                "budget": d.get("budget"),
+                "revenue": d.get("revenue"),
+                "tagline": d.get("tagline"),
+            }
+
+        except Exception as e:
+            return {"error": str(e)}
+
+
 @app.get("/similar-recent/{movie_name}")
 async def get_similar_recent(movie_name: str):
     async with httpx.AsyncClient() as client:

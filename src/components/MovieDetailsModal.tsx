@@ -28,33 +28,43 @@ interface MovieDetails {
 }
 
 interface MovieDetailsModalProps {
-  tmdbId: number | null;
+  movieTitle: string | null;  // ← Use title instead of ID
   onClose: () => void;
 }
 
-export function MovieDetailsModal({ tmdbId, onClose }: MovieDetailsModalProps) {
+export function MovieDetailsModal({ movieTitle, onClose }: MovieDetailsModalProps) {
   const [details, setDetails] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!tmdbId) return;
+    if (!movieTitle) return;
 
     const fetchDetails = async () => {
       setLoading(true);
       setDetails(null);
+      setError("");
+
       try {
-        const res = await fetch(`${BACKEND_URL}/movie-details/${tmdbId}`);
+        const res = await fetch(
+          `${BACKEND_URL}/movie-details-by-title/${encodeURIComponent(movieTitle)}`
+        );
         const data = await res.json();
-        setDetails(data);
+
+        if (data.error || !data.title) {
+          setError("Could not load movie details.");
+        } else {
+          setDetails(data);
+        }
       } catch (err) {
-        console.error("Failed to fetch movie details:", err);
+        setError("Failed to load movie details.");
       } finally {
         setLoading(false);
       }
     };
 
     fetchDetails();
-  }, [tmdbId]);
+  }, [movieTitle]);
 
   // Close on Escape key
   useEffect(() => {
@@ -65,7 +75,7 @@ export function MovieDetailsModal({ tmdbId, onClose }: MovieDetailsModalProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  if (!tmdbId) return null;
+  if (!movieTitle) return null;
 
   return (
     <AnimatePresence>
@@ -91,13 +101,21 @@ export function MovieDetailsModal({ tmdbId, onClose }: MovieDetailsModalProps) {
 
           {/* Loading State */}
           {loading && (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex flex-col items-center justify-center h-64 gap-3">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
+              <p className="text-sm text-muted-foreground">Loading details...</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {!loading && error && (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-sm text-muted-foreground">{error}</p>
             </div>
           )}
 
           {/* Movie Details */}
-          {!loading && details && (
+          {!loading && !error && details && (
             <>
               {/* Backdrop */}
               {details.backdrop && (
@@ -153,7 +171,7 @@ export function MovieDetailsModal({ tmdbId, onClose }: MovieDetailsModalProps) {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <User className="h-4 w-4 text-primary" />
-                    <span>{details.director}</span>
+                    <span className="truncate">{details.director}</span>
                   </div>
                 </div>
 
