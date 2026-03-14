@@ -442,7 +442,7 @@ async def get_similar_recent(movie_name: str):
 
                 merged.append(_format_movie(m, genre_map))
 
-                if len(merged) >= 20:
+                if len(merged) >= 80:
                     break
 
             return {"movies": merged}
