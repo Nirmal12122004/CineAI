@@ -57,20 +57,20 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
       >
         <Flame className="h-5 w-5 text-orange-500" />
         <h2 className="font-display text-2xl text-foreground">
-          Similar Movies <span className="text-gradient">(1995 - 2026)</span>
+          Similar Movies up to Latest Releases
         </h2>
       </motion.div>
 
       <p className="text-sm text-muted-foreground mb-6">
-        Latest movies from TMDB similar to{" "}
+        Latest movies which are similar to{" "}
         <span className="text-primary font-medium">"{searchedMovie}"</span>
-        {" "}— updated daily 🔥
+        {" "}— updates daily 🔥
       </p>
 
       {/* Loading Skeleton */}
       {loading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 16 }).map((_, i) => (
             <div
               key={i}
               className="rounded-lg bg-card border border-border overflow-hidden animate-pulse"
