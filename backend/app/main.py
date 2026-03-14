@@ -2,8 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.recommender import recommend, TMDB_API_KEY
 from app.moviesmod_scraper import get_vegamovies_search
+from rapidfuzz import process, fuzz
 import httpx
 import asyncio
+import re
 
 app = FastAPI(title="AI Movie Recommendation API")
 
@@ -15,35 +17,161 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"message": "AI Movie Recommendation API running 🚀"}
+# ------------------------------------
+# Popular movie titles for fuzzy matching
+# Add more as needed
+# ------------------------------------
+KNOWN_TITLES = [
+    "iron man", "iron man 2", "iron man 3",
+    "spider man", "spider man 2", "spider man 3",
+    "spider-man no way home", "spider-man homecoming", "spider-man far from home",
+    "avengers", "avengers endgame", "avengers infinity war", "avengers age of ultron",
+    "captain america", "captain america civil war", "captain america winter soldier",
+    "batman", "batman begins", "batman vs superman",
+    "the dark knight", "the dark knight rises",
+    "superman", "superman returns",
+    "black panther", "black widow", "doctor strange",
+    "thor", "thor ragnarok", "thor love and thunder",
+    "ant man", "ant man and the wasp",
+    "guardians of the galaxy", "guardians of the galaxy 2",
+    "harry potter", "harry potter chamber of secrets",
+    "harry potter prisoner of azkaban", "harry potter goblet of fire",
+    "star wars", "star wars the force awakens", "star wars the last jedi",
+    "fast and furious", "fast five", "furious 7",
+    "john wick", "john wick 2", "john wick 3", "john wick 4",
+    "transformers", "transformers age of extinction",
+    "jurassic park", "jurassic world",
+    "mission impossible", "mission impossible fallout",
+    "indiana jones",
+    "pirates of the caribbean",
+    "lord of the rings", "lord of the rings fellowship",
+    "the hobbit", "hobbit desolation of smaug",
+    "titanic", "inception", "interstellar",
+    "the matrix", "matrix reloaded", "matrix revolutions",
+    "shrek", "shrek 2",
+    "frozen", "frozen 2",
+    "toy story", "toy story 2", "toy story 3",
+    "finding nemo", "finding dory",
+    "the lion king", "moana", "coco",
+    "deadpool", "deadpool 2", "deadpool wolverine",
+    "wolverine", "x-men", "x men days of future past",
+    "wonder woman", "aquaman", "the flash",
+    "joker", "suicide squad",
+    "the godfather", "the godfather part 2",
+    "pulp fiction", "fight club", "forrest gump",
+    "the shawshank redemption", "goodfellas",
+    "schindler list", "gladiator", "braveheart",
+]
 
-@app.api_route("/health", methods=["GET", "HEAD"])
-def health():
-    return {"status": "ok"}
 
-@app.get("/recommend/{movie_name}")
-def get_recommendation(movie_name: str):
-    return recommend(movie_name)
+def _fuzzy_correct(movie_name: str) -> str | None:
+    """
+    Use rapidfuzz to find closest matching known title.
+    Returns corrected title if confidence > 70, else None.
+    """
+    cleaned = re.sub(r'[-_.]', ' ', movie_name).lower().strip()
+    match = process.extractOne(cleaned, KNOWN_TITLES, scorer=fuzz.WRatio)
+    if match and match[1] >= 70:
+        return match[0]
+    return None
 
-@app.get("/download/{movie_name}")
-def download_movie(movie_name: str):
-    return get_vegamovies_search(movie_name)
+
+def _clean_query(movie_name: str) -> list[str]:
+    """
+    Generate multiple search query variations to maximize TMDB match.
+    Handles: ironman, iron-man, IronMan, iornmna (spelling mistakes) etc.
+    """
+    original = movie_name.strip()
+    queries = set()
+
+    # 1. Original as-is
+    queries.add(original)
+
+    # 2. Replace hyphens/underscores/dots with spaces
+    spaced = re.sub(r'[-_.]', ' ', original).strip()
+    queries.add(spaced)
+
+    # 3. CamelCase → Camel Case
+    camel_spaced = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
+    queries.add(camel_spaced)
+
+    # 4. CamelCase after symbol replacement
+    camel_spaced2 = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', spaced).strip()
+    queries.add(camel_spaced2)
+
+    # 5. Lowercase all
+    queries.update([q.lower() for q in list(queries)])
+
+    # 6. Known compound word fixes
+    compound_fixes = {
+        "ironman": "iron man",
+        "spiderman": "spider man",
+        "captainamerica": "captain america",
+        "blackpanther": "black panther",
+        "blackwidow": "black widow",
+        "doctorstrange": "doctor strange",
+        "antman": "ant man",
+        "darknight": "dark knight",
+        "harrypotter": "harry potter",
+        "starwars": "star wars",
+        "fastfurious": "fast and furious",
+        "johnwick": "john wick",
+        "guardiansofthegalaxy": "guardians of the galaxy",
+        "transformers": "transformers",
+        "jurassicpark": "jurassic park",
+        "jurassicworld": "jurassic world",
+        "missionimpossible": "mission impossible",
+        "indianajones": "indiana jones",
+        "piratesofthecaribbean": "pirates of the caribbean",
+        "lordoftherings": "lord of the rings",
+        "thehobbit": "the hobbit",
+        "avengersinfinitywar": "avengers infinity war",
+        "avengersendgame": "avengers endgame",
+    }
+
+    no_space = re.sub(r'[-_.\s]', '', original).lower()
+    if no_space in compound_fixes:
+        queries.add(compound_fixes[no_space])
+
+    # 7. ✅ Fuzzy spelling correction (handles "iornmna" → "iron man")
+    fuzzy_match = _fuzzy_correct(original)
+    if fuzzy_match:
+        queries.add(fuzzy_match)
+
+    # Return unique non-empty queries, original first
+    result = [original]
+    for q in queries:
+        if q and q != original and q not in result:
+            result.append(q)
+
+    # Put fuzzy match near the top if found (most likely correct)
+    if fuzzy_match and fuzzy_match in result:
+        result.remove(fuzzy_match)
+        result.insert(1, fuzzy_match)
+
+    return result
 
 @app.get("/trailer/{movie_name}")
 async def get_trailer(movie_name: str):
     async with httpx.AsyncClient() as client:
         try:
-            search_resp = await client.get(
-                "https://api.themoviedb.org/3/search/movie",
-                params={"api_key": TMDB_API_KEY, "query": movie_name},
-                timeout=5.0,
-            )
-            search_data = search_resp.json()
-            if not search_data.get("results"):
+            queries = _clean_query(movie_name)
+            tmdb_id = None
+
+            # Try each query variation until we find a result
+            for query in queries:
+                search_resp = await client.get(
+                    "https://api.themoviedb.org/3/search/movie",
+                    params={"api_key": TMDB_API_KEY, "query": query},
+                    timeout=5.0,
+                )
+                results = search_resp.json().get("results", [])
+                if results:
+                    tmdb_id = results[0]["id"]
+                    break
+
+            if not tmdb_id:
                 return {"trailer_key": None}
-            tmdb_id = search_data["results"][0]["id"]
             video_resp = await client.get(
                 f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos",
                 params={"api_key": TMDB_API_KEY},
@@ -58,6 +186,79 @@ async def get_trailer(movie_name: str):
             return {"trailer_key": trailer["key"] if trailer else None}
         except Exception as e:
             return {"trailer_key": None, "error": str(e)}
+
+
+def _clean_query(movie_name: str) -> list[str]:
+    """
+    Generate multiple search query variations to maximize TMDB match.
+    Returns list of queries to try in order.
+    Handles: ironman, iron-man, iron_man, IronMan, speling mistakes etc.
+    """
+    import re
+
+    original = movie_name.strip()
+
+    queries = set()
+
+    # 1. Original as-is
+    queries.add(original)
+
+    # 2. Replace hyphens/underscores/dots with spaces
+    spaced = re.sub(r'[-_.]', ' ', original).strip()
+    queries.add(spaced)
+
+    # 3. Insert space before capitals (CamelCase → Camel Case)
+    camel_spaced = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
+    queries.add(camel_spaced)
+
+    # 4. Insert spaces between lowercase→uppercase transitions after replacing symbols
+    camel_spaced2 = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', spaced).strip()
+    queries.add(camel_spaced2)
+
+    # 5. Lowercase all variations
+    queries.update([q.lower() for q in list(queries)])
+
+    # 6. Known compound word fixes (most common movie title patterns)
+    compound_fixes = {
+        "ironman": "iron man",
+        "spiderman": "spider man",
+        "batman": "batman",
+        "superman": "superman",
+        "captainamerica": "captain america",
+        "blackpanther": "black panther",
+        "blackwidow": "black widow",
+        "doctorstrange": "doctor strange",
+        "antman": "ant man",
+        "darknight": "dark knight",
+        "harrypotter": "harry potter",
+        "starwars": "star wars",
+        "fastfurious": "fast and furious",
+        "johnwick": "john wick",
+        "guardiansofthegalaxy": "guardians of the galaxy",
+        "transformers": "transformers",
+        "jurassicpark": "jurassic park",
+        "jurassicworld": "jurassic world",
+        "missionimpossible": "mission impossible",
+        "indiajones": "indiana jones",
+        "piratesofthecaribbean": "pirates of the caribbean",
+        "lordoftherings": "lord of the rings",
+        "thehobbit": "the hobbit",
+        "avengersinfinitywar": "avengers infinity war",
+        "avengersendgame": "avengers endgame",
+    }
+
+    # Check no-space version against known fixes
+    no_space = re.sub(r'[-_.\s]', '', original).lower()
+    if no_space in compound_fixes:
+        queries.add(compound_fixes[no_space])
+
+    # Return unique non-empty queries, original first
+    result = [original]
+    for q in queries:
+        if q and q != original and q not in result:
+            result.append(q)
+
+    return result
 
 
 def _format_movie(m: dict, genre_map: dict) -> dict:
@@ -90,6 +291,9 @@ def _in_year_range(m: dict) -> bool:
 async def get_similar_recent(movie_name: str):
     async with httpx.AsyncClient() as client:
         try:
+            # ── Clean query first ──────────────────────────────────────
+            queries = _clean_query(movie_name)
+
             # ── Step 1: Genre map ──────────────────────────────────────
             genre_resp = await client.get(
                 "https://api.themoviedb.org/3/genre/movie/list",
@@ -98,17 +302,21 @@ async def get_similar_recent(movie_name: str):
             )
             genre_map = {g["id"]: g["name"] for g in genre_resp.json().get("genres", [])}
 
-            # ── Step 2: Search movie on TMDB ───────────────────────────
-            search_resp = await client.get(
-                "https://api.themoviedb.org/3/search/movie",
-                params={"api_key": TMDB_API_KEY, "query": movie_name},
-                timeout=5.0,
-            )
-            results = search_resp.json().get("results", [])
-            if not results:
-                return {"movies": []}
+            # ── Step 2: Search movie - try all query variations ─────────
+            searched = None
+            for query in queries:
+                search_resp = await client.get(
+                    "https://api.themoviedb.org/3/search/movie",
+                    params={"api_key": TMDB_API_KEY, "query": query},
+                    timeout=5.0,
+                )
+                results = search_resp.json().get("results", [])
+                if results:
+                    searched = results[0]
+                    break
 
-            searched = results[0]
+            if not searched:
+                return {"movies": []}
             tmdb_id = searched["id"]
             genre_ids = searched.get("genre_ids", [])
 
@@ -234,7 +442,7 @@ async def get_similar_recent(movie_name: str):
 
                 merged.append(_format_movie(m, genre_map))
 
-                if len(merged) >= 80:
+                if len(merged) >= 20:
                     break
 
             return {"movies": merged}
