@@ -7,7 +7,7 @@ import type { Movie } from "@/lib/mockData";
 const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
 interface NewReleasesProps {
-  searchedMovie: string | null;  // ← updates when user searches
+  searchedMovie: string | null;
 }
 
 export function NewReleases({ searchedMovie }: NewReleasesProps) {
@@ -16,12 +16,12 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Only fetch when user has searched a movie
     if (!searchedMovie) return;
 
     const fetchSimilarRecent = async () => {
       setLoading(true);
       setError("");
+      setMovies([]);
 
       try {
         const res = await fetch(
@@ -29,8 +29,8 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
         );
         const data = await res.json();
 
-        if (data.movies && data.movies.length > 0) {
-          setMovies(data.movies);
+        if (data.recommendations && data.recommendations.length > 0) {
+          setMovies(data.recommendations);
         } else {
           setError("No similar recent movies found.");
         }
@@ -42,10 +42,9 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
     };
 
     fetchSimilarRecent();
-  }, [searchedMovie]);  // ← re-fetches every time user searches new movie
+  }, [searchedMovie]);
 
-  // Don't show section before user searches
-  if (!searchedMovie && movies.length === 0 && !loading) return null;
+  if (!searchedMovie) return null;
 
   return (
     <section className="container py-10">
@@ -63,7 +62,9 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
       </motion.div>
 
       <p className="text-sm text-muted-foreground mb-6">
-        Recent movies similar to <span className="text-primary font-medium">"{searchedMovie}"</span>
+        Movies from your ML model similar to{" "}
+        <span className="text-primary font-medium">"{searchedMovie}"</span>{" "}
+        released between 1995 - 2026
       </p>
 
       {/* Loading Skeleton */}

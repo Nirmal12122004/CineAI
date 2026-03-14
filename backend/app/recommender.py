@@ -33,19 +33,28 @@ similarity = pickle.load(open(os.path.join(MODELS_DIR, "similarity.pkl"), "rb"))
 
 movies.reset_index(drop=True, inplace=True)
 
-# Precompute once at startup — avoids repeated .str.lower() calls
+# Precompute once at startup
 titles: list[str] = movies["original_title"].str.lower().tolist()
 titles_lower_series = movies["original_title"].str.lower()
 
-# Precompute max popularity once (it never changes)
 _max_pop: float = movies["popularity_score"].max()
 
-# Precompute vectorised numpy arrays for hybrid scoring (avoid per-row .iloc)
 _popularity_scores: np.ndarray = movies["popularity_score"].to_numpy(dtype=np.float32)
 _vote_averages: np.ndarray = movies["vote_average"].to_numpy(dtype=np.float32)
 _original_titles: list[str] = movies["original_title"].tolist()
-_titles_lower: list[str] = titles  # alias
+_titles_lower: list[str] = titles
 _genres: list = movies["genres"].tolist()
+
+# Precompute release years for filtering
+def _extract_year(title: str) -> int | None:
+    """Extract year from title like 'Iron Man (2008)' → 2008"""
+    import re
+    match = re.search(r'\((\d{4})\)', title)
+    if match:
+        return int(match.group(1))
+    return None
+
+_years: list[int | None] = [_extract_year(t) for t in _original_titles]
 
 
 # ------------------------------------
@@ -96,7 +105,7 @@ async def _fetch_movie_details_async(title: str) -> tuple:
 
 
 # ------------------------------------
-# Vectorised hybrid scoring (numpy)
+# Vectorised hybrid scoring
 # ------------------------------------
 def _compute_hybrid_scores(index: int, movie_name_lower: str) -> np.ndarray:
     content_scores = similarity[index].astype(np.float32)
@@ -115,7 +124,7 @@ def _compute_hybrid_scores(index: int, movie_name_lower: str) -> np.ndarray:
 # ------------------------------------
 # Core async recommend logic
 # ------------------------------------
-async def _recommend_async(movie_name: str) -> dict:
+async def _recommend_async(movie_name: str, year_from: int | None = None, year_to: int | None = None) -> dict:
     movie_name = movie_name.lower().strip()
 
     best_match = process.extractOne(movie_name, titles, scorer=fuzz.WRatio)
@@ -127,12 +136,32 @@ async def _recommend_async(movie_name: str) -> dict:
 
     hybrid_scores = _compute_hybrid_scores(index, movie_name)
 
-    top_indices = np.argpartition(hybrid_scores, -33)[-33:]
+    # Get more results when filtering by year so we have enough after filter
+    fetch_count = 100 if (year_from or year_to) else 33
+
+    top_indices = np.argpartition(hybrid_scores, -fetch_count)[-fetch_count:]
     top_indices = top_indices[np.argsort(hybrid_scores[top_indices])[::-1]]
-    recommendation_indices = [int(i) for i in top_indices if int(i) != index][:32]
+
+    # Filter by year if specified
+    filtered_indices = []
+    for i in top_indices:
+        idx = int(i)
+        if idx == index:
+            continue
+        if year_from or year_to:
+            year = _years[idx]
+            if year is None:
+                continue
+            if year_from and year < year_from:
+                continue
+            if year_to and year > year_to:
+                continue
+        filtered_indices.append(idx)
+        if len(filtered_indices) >= 20:  # limit to 20 results
+            break
 
     input_title = _original_titles[index]
-    all_titles_to_fetch = [input_title] + [_original_titles[i] for i in recommendation_indices]
+    all_titles_to_fetch = [input_title] + [_original_titles[i] for i in filtered_indices]
 
     results = await asyncio.gather(
         *[_fetch_movie_details_async(t) for t in all_titles_to_fetch]
@@ -149,7 +178,7 @@ async def _recommend_async(movie_name: str) -> dict:
     }
 
     recommendations = []
-    for i, (poster, year) in zip(recommendation_indices, results[1:]):
+    for i, (poster, year) in zip(filtered_indices, results[1:]):
         recommendations.append({
             "id": i,
             "title": _original_titles[i],
@@ -174,6 +203,18 @@ def recommend(movie_name: str) -> dict:
             return future.result()
     except RuntimeError:
         return asyncio.run(_recommend_async(movie_name))
+
+
+def recommend_with_year_filter(movie_name: str, year_from: int = 1995, year_to: int = 2026) -> dict:
+    """Same ML model but filters results to year range"""
+    try:
+        loop = asyncio.get_running_loop()
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _recommend_async(movie_name, year_from, year_to))
+            return future.result()
+    except RuntimeError:
+        return asyncio.run(_recommend_async(movie_name, year_from, year_to))
 
 
 async def recommend_async(movie_name: str) -> dict:
