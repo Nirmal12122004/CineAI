@@ -20,6 +20,7 @@ const [loading, setLoading] = useState(false);
 const [error, setError] = useState("");
 const [searched, setSearched] = useState(false);
 const [videoKey, setVideoKey] = useState<string | null>(null);
+const [searchedMovieName, setSearchedMovieName] = useState<string | null>(null); // ← track searched name
 
 const handleRecommend = async (movieName: string) => {
   setLoading(true);
@@ -30,6 +31,7 @@ const handleRecommend = async (movieName: string) => {
     setInputMovie(input);
     setMovies(recommendations);
     setSearched(true);
+    setSearchedMovieName(movieName);  // ← save searched movie name
   } catch (err: any) {
     setError(err.message);
     setMovies([]);
@@ -245,10 +247,12 @@ return (
       </div>
     </div>
 
-    {/* ✅ New Releases Section */}
-    <div className="border-t border-border">
-      <NewReleases />
-    </div>
+    {/* ✅ Similar Recent Movies Section - updates on every search */}
+    {searchedMovieName && (
+      <div className="border-t border-border">
+        <NewReleases searchedMovie={searchedMovieName} />
+      </div>
+    )}
 
     {/* Trailer Modal */}
     {videoKey && (

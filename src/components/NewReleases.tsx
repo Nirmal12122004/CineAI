@@ -6,31 +6,46 @@ import type { Movie } from "@/lib/mockData";
 
 const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
-export function NewReleases() {
+interface NewReleasesProps {
+  searchedMovie: string | null;  // ← updates when user searches
+}
+
+export function NewReleases({ searchedMovie }: NewReleasesProps) {
   const [movies, setMovies] = useState<Movie[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const fetchNewReleases = async () => {
+    // Only fetch when user has searched a movie
+    if (!searchedMovie) return;
+
+    const fetchSimilarRecent = async () => {
+      setLoading(true);
+      setError("");
+
       try {
-        const res = await fetch(`${BACKEND_URL}/new-releases`);
+        const res = await fetch(
+          `${BACKEND_URL}/similar-recent/${encodeURIComponent(searchedMovie)}`
+        );
         const data = await res.json();
 
         if (data.movies && data.movies.length > 0) {
           setMovies(data.movies);
         } else {
-          setError("No new releases found.");
+          setError("No similar recent movies found.");
         }
       } catch (err) {
-        setError("Failed to load new releases.");
+        setError("Failed to load similar recent movies.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchNewReleases();
-  }, []);
+    fetchSimilarRecent();
+  }, [searchedMovie]);  // ← re-fetches every time user searches new movie
+
+  // Don't show section before user searches
+  if (!searchedMovie && movies.length === 0 && !loading) return null;
 
   return (
     <section className="container py-10">
@@ -39,13 +54,17 @@ export function NewReleases() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center gap-2 mb-6"
+        className="flex items-center gap-2 mb-2"
       >
         <Flame className="h-5 w-5 text-orange-500" />
         <h2 className="font-display text-2xl text-foreground">
-          Now Playing in <span className="text-gradient">Theatres</span>
+          Similar Movies <span className="text-gradient">(1995 - 2026)</span>
         </h2>
       </motion.div>
+
+      <p className="text-sm text-muted-foreground mb-6">
+        Recent movies similar to <span className="text-primary font-medium">"{searchedMovie}"</span>
+      </p>
 
       {/* Loading Skeleton */}
       {loading && (
