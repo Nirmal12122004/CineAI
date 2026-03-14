@@ -1,7 +1,8 @@
-import { Star, Download, Play, X } from "lucide-react";
+import { Star, Download, Play, X, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import type { Movie } from "@/lib/mockData";
+import { MovieDetailsModal } from "@/components/MovieDetailsModal";
 
 const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
@@ -20,15 +21,16 @@ function getRatingBg(rating: number) {
 export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
 
   const [videoKey, setVideoKey] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
-  // ✅ Trailer via backend - TMDB key hidden
-  const handleTrailer = async () => {
+  // ✅ Trailer via backend
+  const handleTrailer = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       const res = await fetch(
         `${BACKEND_URL}/trailer/${encodeURIComponent(movie.title)}`
       );
       const data = await res.json();
-
       if (data.trailer_key) {
         setVideoKey(data.trailer_key);
       } else {
@@ -41,9 +43,9 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
   };
 
   // ✅ Alert first, then redirect
-  const handleDownload = async () => {
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     const url = "https://vegamoviesdl.com";
-
     try {
       await navigator.clipboard.writeText(movie.title);
       alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
@@ -66,11 +68,12 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: index * 0.08 }}
-        className="card-hover group relative overflow-hidden rounded-lg bg-card border border-border"
+        className="card-hover group relative overflow-hidden rounded-lg bg-card border border-border cursor-pointer"
         style={{ boxShadow: "var(--shadow-card)" }}
+        onClick={() => setShowDetails(true)}  // ← Click anywhere to open details
       >
 
-        {/* ✅ Poster - responsive, fills card at any zoom level */}
+        {/* ✅ Poster - responsive */}
         <div className="relative w-full aspect-[2/3] overflow-hidden rounded-t-lg shadow-lg">
 
           <img
@@ -91,14 +94,10 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
             </div>
           )}
 
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
           {/* Rating Badge */}
-          <div
-            className={`absolute top-3 right-3 ${getRatingBg(
-              movie.predicted_rating
-            )} rounded-md px-2 py-1 text-xs font-bold text-background`}
-          >
+          <div className={`absolute top-3 right-3 ${getRatingBg(movie.predicted_rating)} rounded-md px-2 py-1 text-xs font-bold text-background`}>
             ★ {movie.predicted_rating.toFixed(2)}
           </div>
 
@@ -109,9 +108,15 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
             </div>
           )}
 
-          {/* ✅ Buttons - always fit inside poster at any zoom */}
-          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 px-2">
+          {/* ✅ Info button */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="rounded-full bg-black/60 p-3">
+              <Info size={24} className="text-white" />
+            </div>
+          </div>
 
+          {/* Buttons */}
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 px-2">
             <button
               onClick={handleTrailer}
               className="flex flex-1 items-center justify-center gap-1 rounded-md bg-red-600 px-2 py-1.5 text-[11px] font-medium text-white hover:bg-red-700 transition"
@@ -119,7 +124,6 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
               <Play size={12} />
               Trailer
             </button>
-
             <button
               onClick={handleDownload}
               className="flex flex-1 items-center justify-center gap-1 rounded-md bg-primary px-2 py-1.5 text-[11px] font-medium text-white hover:bg-primary/80 transition"
@@ -127,51 +131,33 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
               <Download size={12} />
               Download
             </button>
-
           </div>
         </div>
 
         {/* Movie Info */}
         <div className="p-4 space-y-3">
-
           <h3 className="font-body text-sm font-semibold leading-tight text-foreground line-clamp-2 group-hover:text-primary transition-colors">
             {movie.title}
           </h3>
 
-          {/* Genres */}
           <div className="flex flex-wrap gap-1.5">
             {movie.genre.split("|").map((g) => (
-              <span
-                key={g}
-                className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-              >
+              <span key={g} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {g}
               </span>
             ))}
           </div>
 
-          {/* Rating Stars */}
           <div className="flex items-center gap-1 pt-1">
             {[1, 2, 3, 4, 5].map((star) => (
               <Star
                 key={star}
-                className={`h-3.5 w-3.5 ${
-                  star <= Math.round(movie.predicted_rating)
-                    ? getRatingColor(movie.predicted_rating)
-                    : "text-muted"
-                }`}
-                fill={
-                  star <= Math.round(movie.predicted_rating)
-                    ? "currentColor"
-                    : "none"
-                }
+                className={`h-3.5 w-3.5 ${star <= Math.round(movie.predicted_rating) ? getRatingColor(movie.predicted_rating) : "text-muted"}`}
+                fill={star <= Math.round(movie.predicted_rating) ? "currentColor" : "none"}
               />
             ))}
-            <span className="ml-1 text-xs text-muted-foreground">
-              {movie.predicted_rating.toFixed(2)}
-            </span>
+            <span className="ml-1 text-xs text-muted-foreground">{movie.predicted_rating.toFixed(2)}</span>
           </div>
-
         </div>
       </motion.div>
 
@@ -179,10 +165,7 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
       {videoKey && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <div className="relative w-[90%] max-w-4xl aspect-video">
-            <button
-              onClick={() => setVideoKey(null)}
-              className="absolute -top-10 right-0 text-white"
-            >
+            <button onClick={() => setVideoKey(null)} className="absolute -top-10 right-0 text-white">
               <X size={28} />
             </button>
             <iframe
@@ -191,9 +174,17 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
               title="Movie Trailer"
               frameBorder="0"
               allowFullScreen
-            ></iframe>
+            />
           </div>
         </div>
+      )}
+
+      {/* 🎬 Movie Details Modal */}
+      {showDetails && (
+        <MovieDetailsModal
+          tmdbId={movie.id}
+          onClose={() => setShowDetails(false)}
+        />
       )}
     </>
   );
