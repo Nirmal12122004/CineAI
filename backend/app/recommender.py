@@ -157,7 +157,7 @@ async def _recommend_async(movie_name: str, year_from: int | None = None, year_t
             if year_to and year > year_to:
                 continue
         filtered_indices.append(idx)
-        if len(filtered_indices) >= 80:  # limit to 80 results
+        if len(filtered_indices) >= 20:  # limit to 20 results
             break
 
     input_title = _original_titles[index]
