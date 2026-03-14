@@ -80,7 +80,6 @@ export async function fetchRecommendations(
     (movie: any, index: number) => {
       const yearMatch = movie.title?.match(/\((\d{4})\)/);
       const year = movie.year || (yearMatch ? parseInt(yearMatch[1]) : undefined);
-
       return {
         id: index + 1,
         title: movie.title,
@@ -97,7 +96,6 @@ export async function fetchRecommendations(
   if (data.input) {
     const yearMatch = data.input.title?.match(/\((\d{4})\)/);
     const year = data.input.year || (yearMatch ? parseInt(yearMatch[1]) : undefined);
-
     inputMovie = {
       id: 0,
       title: data.input.title,
@@ -118,10 +116,7 @@ export async function fetchRecommendations(
     };
   }
 
-  return {
-    input: inputMovie,
-    recommendations,
-  };
+  return { input: inputMovie, recommendations };
 }
 
 export function fetchMetrics(): ModelMetrics {

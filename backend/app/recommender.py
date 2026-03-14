@@ -1,4 +1,5 @@
 import os
+import re
 import pickle
 import httpx
 import asyncio
@@ -23,8 +24,15 @@ similarity = pickle.load(open(os.path.join(MODELS_DIR, "similarity.pkl"), "rb"))
 
 movies.reset_index(drop=True, inplace=True)
 
+# ✅ Full titles with year e.g. "inception (2010)"
 titles: list[str] = movies["original_title"].str.lower().tolist()
 titles_lower_series = movies["original_title"].str.lower()
+
+# ✅ Titles WITHOUT year e.g. "inception" - for better fuzzy matching
+titles_no_year: list[str] = [
+    re.sub(r'\s*\(\d{4}\)\s*$', '', t).strip()
+    for t in titles
+]
 
 _max_pop: float = movies["popularity_score"].max()
 _popularity_scores: np.ndarray = movies["popularity_score"].to_numpy(dtype=np.float32)
@@ -34,7 +42,6 @@ _titles_lower: list[str] = titles
 _genres: list = movies["genres"].tolist()
 
 def _extract_year(title: str) -> int | None:
-    import re
     match = re.search(r'\((\d{4})\)', title)
     if match:
         return int(match.group(1))
@@ -96,18 +103,34 @@ def _compute_hybrid_scores(index: int, movie_name_lower: str) -> np.ndarray:
 
 
 async def _recommend_async(movie_name: str, year_from: int | None = None, year_to: int | None = None) -> dict:
-    movie_name = movie_name.lower().strip()
+    movie_name_lower = movie_name.lower().strip()
 
-    best_match = process.extractOne(movie_name, titles, scorer=fuzz.WRatio)
+    # ✅ Step 1: Try matching against titles WITHOUT year first (inception → inception)
+    match_no_year = process.extractOne(movie_name_lower, titles_no_year, scorer=fuzz.WRatio)
 
-    # ✅ Lowered from 65 to 50 - fixes "inception", short titles etc.
-    if not best_match or best_match[1] < 50:
+    # ✅ Step 2: Also try matching against full titles (inception (2010))
+    match_full = process.extractOne(movie_name_lower, titles, scorer=fuzz.WRatio)
+
+    # ✅ Step 3: Pick the better match
+    best_score = 0
+    index = None
+
+    if match_no_year and match_no_year[1] > best_score:
+        best_score = match_no_year[1]
+        index = match_no_year[2]  # rapidfuzz returns (match, score, index)
+
+    if match_full and match_full[1] > best_score:
+        best_score = match_full[1]
+        matched_title = match_full[0]
+        idx = titles_lower_series[titles_lower_series == matched_title]
+        if not idx.empty:
+            index = int(idx.index[0])
+
+    # ✅ Lowered threshold to 45 for short titles like "inception", "her", "it"
+    if index is None or best_score < 45:
         return {"input": None, "recommendations": []}
 
-    matched_title = best_match[0]
-    index = int(titles_lower_series[titles_lower_series == matched_title].index[0])
-
-    hybrid_scores = _compute_hybrid_scores(index, movie_name)
+    hybrid_scores = _compute_hybrid_scores(index, movie_name_lower)
 
     fetch_count = 100 if (year_from or year_to) else 33
 
