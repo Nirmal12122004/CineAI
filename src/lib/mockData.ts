@@ -27,7 +27,7 @@ export const mockMetrics: ModelMetrics = {
   test_samples: 20004,
 };
 
-// ✅ Clean query - handles ironman→iron man, iron-man→iron man, IronMan→Iron Man
+// Clean query - handles ironman→iron man, iron-man→iron man, IronMan→Iron Man
 function cleanQuery(movieName: string): string {
   let cleaned = movieName.replace(/[-_]/g, " ").trim();
   cleaned = cleaned.replace(/(?<=[a-z])(?=[A-Z])/g, " ");
@@ -44,9 +44,9 @@ export async function fetchRecommendations(
     throw new Error("Please enter a movie name.");
   }
 
-  // ✅ Try original query first, then cleaned version
+  // Try original query first, then cleaned version
   const queries = [query, cleanQuery(query)].filter(
-    (q, i, arr) => arr.indexOf(q) === i  // deduplicate
+    (q, i, arr) => arr.indexOf(q) === i
   );
 
   let data: any = null;
@@ -70,10 +70,9 @@ export async function fetchRecommendations(
     }
   }
 
-  // ✅ Better error message
   if (!data || !data.recommendations || data.recommendations.length === 0) {
     throw new Error(
-      `"${movieName}" not found in our database. Try a more popular title like "Inception" or "The Dark Knight".`
+      `"${movieName}" not found. Please check the spelling or try another movie title.`
     );
   }
 
