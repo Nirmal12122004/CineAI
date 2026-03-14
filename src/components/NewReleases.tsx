@@ -29,8 +29,8 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
         );
         const data = await res.json();
 
-        if (data.recommendations && data.recommendations.length > 0) {
-          setMovies(data.recommendations);
+        if (data.movies && data.movies.length > 0) {
+          setMovies(data.movies);
         } else {
           setError("No similar recent movies found.");
         }
@@ -62,9 +62,9 @@ export function NewReleases({ searchedMovie }: NewReleasesProps) {
       </motion.div>
 
       <p className="text-sm text-muted-foreground mb-6">
-        Movies from your ML model similar to{" "}
-        <span className="text-primary font-medium">"{searchedMovie}"</span>{" "}
-        released between 1995 - 2026
+        Latest movies from TMDB similar to{" "}
+        <span className="text-primary font-medium">"{searchedMovie}"</span>
+        {" "}— updated daily 🔥
       </p>
 
       {/* Loading Skeleton */}
