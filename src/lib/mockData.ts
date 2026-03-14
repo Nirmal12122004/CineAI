@@ -73,7 +73,7 @@ export async function fetchRecommendations(
   // ✅ Better error message
   if (!data || !data.recommendations || data.recommendations.length === 0) {
     throw new Error(
-      `"${movieName}" not found. Please check the spelling or try another movie title.`
+      `"${movieName}" not found in our database. Try a more popular title like "Inception" or "The Dark Knight".`
     );
   }
 
