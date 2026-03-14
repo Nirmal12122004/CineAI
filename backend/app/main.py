@@ -17,9 +17,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------------------------
-# Popular movie titles for fuzzy matching
-# ------------------------------------
 KNOWN_TITLES = [
     "iron man", "iron man 2", "iron man 3",
     "spider man", "spider man 2", "spider man 3",
@@ -60,6 +57,33 @@ KNOWN_TITLES = [
     "schindler list", "gladiator", "braveheart",
 ]
 
+# ✅ Global compound fixes - checked FIRST
+COMPOUND_FIXES = {
+    "ironman": "iron man",
+    "spiderman": "spider man",
+    "captainamerica": "captain america",
+    "blackpanther": "black panther",
+    "blackwidow": "black widow",
+    "doctorstrange": "doctor strange",
+    "antman": "ant man",
+    "darknight": "dark knight",
+    "harrypotter": "harry potter",
+    "starwars": "star wars",
+    "fastfurious": "fast and furious",
+    "johnwick": "john wick",
+    "guardiansofthegalaxy": "guardians of the galaxy",
+    "transformers": "transformers",
+    "jurassicpark": "jurassic park",
+    "jurassicworld": "jurassic world",
+    "missionimpossible": "mission impossible",
+    "indianajones": "indiana jones",
+    "piratesofthecaribbean": "pirates of the caribbean",
+    "lordoftherings": "lord of the rings",
+    "thehobbit": "the hobbit",
+    "avengersinfinitywar": "avengers infinity war",
+    "avengersendgame": "avengers endgame",
+}
+
 
 def _fuzzy_correct(movie_name: str) -> str | None:
     cleaned = re.sub(r'[-_.]', ' ', movie_name).lower().strip()
@@ -69,62 +93,42 @@ def _fuzzy_correct(movie_name: str) -> str | None:
     return None
 
 
-# ✅ Single definition of _clean_query
 def _clean_query(movie_name: str) -> list[str]:
     original = movie_name.strip()
-    queries = set()
-
-    queries.add(original)
-    spaced = re.sub(r'[-_.]', ' ', original).strip()
-    queries.add(spaced)
-    camel_spaced = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
-    queries.add(camel_spaced)
-    camel_spaced2 = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', spaced).strip()
-    queries.add(camel_spaced2)
-    queries.update([q.lower() for q in list(queries)])
-
-    compound_fixes = {
-        "ironman": "iron man",
-        "spiderman": "spider man",
-        "captainamerica": "captain america",
-        "blackpanther": "black panther",
-        "blackwidow": "black widow",
-        "doctorstrange": "doctor strange",
-        "antman": "ant man",
-        "darknight": "dark knight",
-        "harrypotter": "harry potter",
-        "starwars": "star wars",
-        "fastfurious": "fast and furious",
-        "johnwick": "john wick",
-        "guardiansofthegalaxy": "guardians of the galaxy",
-        "transformers": "transformers",
-        "jurassicpark": "jurassic park",
-        "jurassicworld": "jurassic world",
-        "missionimpossible": "mission impossible",
-        "indianajones": "indiana jones",
-        "piratesofthecaribbean": "pirates of the caribbean",
-        "lordoftherings": "lord of the rings",
-        "thehobbit": "the hobbit",
-        "avengersinfinitywar": "avengers infinity war",
-        "avengersendgame": "avengers endgame",
-    }
-
     no_space = re.sub(r'[-_.\s]', '', original).lower()
-    if no_space in compound_fixes:
-        queries.add(compound_fixes[no_space])
 
-    fuzzy_match = _fuzzy_correct(original)
-    if fuzzy_match:
-        queries.add(fuzzy_match)
+    # ✅ Result list - compound fix goes FIRST so TMDB gets correct query
+    result = []
 
-    result = [original]
-    for q in queries:
-        if q and q != original and q not in result:
-            result.append(q)
+    # 1. Compound fix FIRST (ironman → iron man)
+    if no_space in COMPOUND_FIXES:
+        result.append(COMPOUND_FIXES[no_space])
 
-    if fuzzy_match and fuzzy_match in result:
-        result.remove(fuzzy_match)
-        result.insert(1, fuzzy_match)
+    # 2. Original
+    if original not in result:
+        result.append(original)
+
+    # 3. Lowercase original
+    lower = original.lower()
+    if lower not in result:
+        result.append(lower)
+
+    # 4. Replace hyphens/underscores with spaces
+    spaced = re.sub(r'[-_.]', ' ', original).strip()
+    if spaced not in result:
+        result.append(spaced)
+
+    # 5. CamelCase → Camel Case
+    camel = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
+    if camel not in result:
+        result.append(camel)
+
+    # 6. Fuzzy correction (iornman → iron man)
+    fuzzy = _fuzzy_correct(original)
+    if fuzzy and fuzzy not in result:
+        # Put fuzzy second if no compound fix, else third
+        insert_pos = 1 if not COMPOUND_FIXES.get(no_space) else 2
+        result.insert(insert_pos, fuzzy)
 
     return result
 
@@ -155,31 +159,26 @@ def _in_year_range(m: dict) -> bool:
     return 1995 <= year <= 2026
 
 
-# ✅ Root endpoint - was missing!
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"message": "AI Movie Recommendation API running 🚀"}
 
 
-# ✅ Health check - was missing!
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 
 
-# ✅ Recommend endpoint - was missing!
 @app.get("/recommend/{movie_name}")
 def get_recommendation(movie_name: str):
     return recommend(movie_name)
 
 
-# ✅ Download endpoint - was missing!
 @app.get("/download/{movie_name}")
 def download_movie(movie_name: str):
     return get_vegamovies_search(movie_name)
 
 
-# ✅ Trailer endpoint
 @app.get("/trailer/{movie_name}")
 async def get_trailer(movie_name: str):
     async with httpx.AsyncClient() as client:
@@ -217,7 +216,6 @@ async def get_trailer(movie_name: str):
             return {"trailer_key": None, "error": str(e)}
 
 
-# ✅ Similar recent movies endpoint
 @app.get("/similar-recent/{movie_name}")
 async def get_similar_recent(movie_name: str):
     async with httpx.AsyncClient() as client:
