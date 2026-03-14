@@ -19,7 +19,6 @@ app.add_middleware(
 
 # ------------------------------------
 # Popular movie titles for fuzzy matching
-# Add more as needed
 # ------------------------------------
 KNOWN_TITLES = [
     "iron man", "iron man 2", "iron man 3",
@@ -42,14 +41,12 @@ KNOWN_TITLES = [
     "transformers", "transformers age of extinction",
     "jurassic park", "jurassic world",
     "mission impossible", "mission impossible fallout",
-    "indiana jones",
-    "pirates of the caribbean",
+    "indiana jones", "pirates of the caribbean",
     "lord of the rings", "lord of the rings fellowship",
     "the hobbit", "hobbit desolation of smaug",
     "titanic", "inception", "interstellar",
     "the matrix", "matrix reloaded", "matrix revolutions",
-    "shrek", "shrek 2",
-    "frozen", "frozen 2",
+    "shrek", "shrek 2", "frozen", "frozen 2",
     "toy story", "toy story 2", "toy story 3",
     "finding nemo", "finding dory",
     "the lion king", "moana", "coco",
@@ -65,10 +62,6 @@ KNOWN_TITLES = [
 
 
 def _fuzzy_correct(movie_name: str) -> str | None:
-    """
-    Use rapidfuzz to find closest matching known title.
-    Returns corrected title if confidence > 70, else None.
-    """
     cleaned = re.sub(r'[-_.]', ' ', movie_name).lower().strip()
     match = process.extractOne(cleaned, KNOWN_TITLES, scorer=fuzz.WRatio)
     if match and match[1] >= 70:
@@ -76,33 +69,20 @@ def _fuzzy_correct(movie_name: str) -> str | None:
     return None
 
 
+# ✅ Single definition of _clean_query
 def _clean_query(movie_name: str) -> list[str]:
-    """
-    Generate multiple search query variations to maximize TMDB match.
-    Handles: ironman, iron-man, IronMan, iornmna (spelling mistakes) etc.
-    """
     original = movie_name.strip()
     queries = set()
 
-    # 1. Original as-is
     queries.add(original)
-
-    # 2. Replace hyphens/underscores/dots with spaces
     spaced = re.sub(r'[-_.]', ' ', original).strip()
     queries.add(spaced)
-
-    # 3. CamelCase → Camel Case
     camel_spaced = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
     queries.add(camel_spaced)
-
-    # 4. CamelCase after symbol replacement
     camel_spaced2 = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', spaced).strip()
     queries.add(camel_spaced2)
-
-    # 5. Lowercase all
     queries.update([q.lower() for q in list(queries)])
 
-    # 6. Known compound word fixes
     compound_fixes = {
         "ironman": "iron man",
         "spiderman": "spider man",
@@ -133,130 +113,18 @@ def _clean_query(movie_name: str) -> list[str]:
     if no_space in compound_fixes:
         queries.add(compound_fixes[no_space])
 
-    # 7. ✅ Fuzzy spelling correction (handles "iornmna" → "iron man")
     fuzzy_match = _fuzzy_correct(original)
     if fuzzy_match:
         queries.add(fuzzy_match)
 
-    # Return unique non-empty queries, original first
     result = [original]
     for q in queries:
         if q and q != original and q not in result:
             result.append(q)
 
-    # Put fuzzy match near the top if found (most likely correct)
     if fuzzy_match and fuzzy_match in result:
         result.remove(fuzzy_match)
         result.insert(1, fuzzy_match)
-
-    return result
-
-@app.get("/trailer/{movie_name}")
-async def get_trailer(movie_name: str):
-    async with httpx.AsyncClient() as client:
-        try:
-            queries = _clean_query(movie_name)
-            tmdb_id = None
-
-            # Try each query variation until we find a result
-            for query in queries:
-                search_resp = await client.get(
-                    "https://api.themoviedb.org/3/search/movie",
-                    params={"api_key": TMDB_API_KEY, "query": query},
-                    timeout=5.0,
-                )
-                results = search_resp.json().get("results", [])
-                if results:
-                    tmdb_id = results[0]["id"]
-                    break
-
-            if not tmdb_id:
-                return {"trailer_key": None}
-            video_resp = await client.get(
-                f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos",
-                params={"api_key": TMDB_API_KEY},
-                timeout=5.0,
-            )
-            video_data = video_resp.json()
-            trailer = next(
-                (v for v in video_data.get("results", [])
-                 if v["type"] == "Trailer" and v["site"] == "YouTube"),
-                None
-            )
-            return {"trailer_key": trailer["key"] if trailer else None}
-        except Exception as e:
-            return {"trailer_key": None, "error": str(e)}
-
-
-def _clean_query(movie_name: str) -> list[str]:
-    """
-    Generate multiple search query variations to maximize TMDB match.
-    Returns list of queries to try in order.
-    Handles: ironman, iron-man, iron_man, IronMan, speling mistakes etc.
-    """
-    import re
-
-    original = movie_name.strip()
-
-    queries = set()
-
-    # 1. Original as-is
-    queries.add(original)
-
-    # 2. Replace hyphens/underscores/dots with spaces
-    spaced = re.sub(r'[-_.]', ' ', original).strip()
-    queries.add(spaced)
-
-    # 3. Insert space before capitals (CamelCase → Camel Case)
-    camel_spaced = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
-    queries.add(camel_spaced)
-
-    # 4. Insert spaces between lowercase→uppercase transitions after replacing symbols
-    camel_spaced2 = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', spaced).strip()
-    queries.add(camel_spaced2)
-
-    # 5. Lowercase all variations
-    queries.update([q.lower() for q in list(queries)])
-
-    # 6. Known compound word fixes (most common movie title patterns)
-    compound_fixes = {
-        "ironman": "iron man",
-        "spiderman": "spider man",
-        "batman": "batman",
-        "superman": "superman",
-        "captainamerica": "captain america",
-        "blackpanther": "black panther",
-        "blackwidow": "black widow",
-        "doctorstrange": "doctor strange",
-        "antman": "ant man",
-        "darknight": "dark knight",
-        "harrypotter": "harry potter",
-        "starwars": "star wars",
-        "fastfurious": "fast and furious",
-        "johnwick": "john wick",
-        "guardiansofthegalaxy": "guardians of the galaxy",
-        "transformers": "transformers",
-        "jurassicpark": "jurassic park",
-        "jurassicworld": "jurassic world",
-        "missionimpossible": "mission impossible",
-        "indiajones": "indiana jones",
-        "piratesofthecaribbean": "pirates of the caribbean",
-        "lordoftherings": "lord of the rings",
-        "thehobbit": "the hobbit",
-        "avengersinfinitywar": "avengers infinity war",
-        "avengersendgame": "avengers endgame",
-    }
-
-    # Check no-space version against known fixes
-    no_space = re.sub(r'[-_.\s]', '', original).lower()
-    if no_space in compound_fixes:
-        queries.add(compound_fixes[no_space])
-
-    # Return unique non-empty queries, original first
-    result = [original]
-    for q in queries:
-        if q and q != original and q not in result:
-            result.append(q)
 
     return result
 
@@ -287,14 +155,75 @@ def _in_year_range(m: dict) -> bool:
     return 1995 <= year <= 2026
 
 
+# ✅ Root endpoint - was missing!
+@app.api_route("/", methods=["GET", "HEAD"])
+def home():
+    return {"message": "AI Movie Recommendation API running 🚀"}
+
+
+# ✅ Health check - was missing!
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health():
+    return {"status": "ok"}
+
+
+# ✅ Recommend endpoint - was missing!
+@app.get("/recommend/{movie_name}")
+def get_recommendation(movie_name: str):
+    return recommend(movie_name)
+
+
+# ✅ Download endpoint - was missing!
+@app.get("/download/{movie_name}")
+def download_movie(movie_name: str):
+    return get_vegamovies_search(movie_name)
+
+
+# ✅ Trailer endpoint
+@app.get("/trailer/{movie_name}")
+async def get_trailer(movie_name: str):
+    async with httpx.AsyncClient() as client:
+        try:
+            queries = _clean_query(movie_name)
+            tmdb_id = None
+
+            for query in queries:
+                search_resp = await client.get(
+                    "https://api.themoviedb.org/3/search/movie",
+                    params={"api_key": TMDB_API_KEY, "query": query},
+                    timeout=5.0,
+                )
+                results = search_resp.json().get("results", [])
+                if results:
+                    tmdb_id = results[0]["id"]
+                    break
+
+            if not tmdb_id:
+                return {"trailer_key": None}
+
+            video_resp = await client.get(
+                f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos",
+                params={"api_key": TMDB_API_KEY},
+                timeout=5.0,
+            )
+            video_data = video_resp.json()
+            trailer = next(
+                (v for v in video_data.get("results", [])
+                 if v["type"] == "Trailer" and v["site"] == "YouTube"),
+                None
+            )
+            return {"trailer_key": trailer["key"] if trailer else None}
+        except Exception as e:
+            return {"trailer_key": None, "error": str(e)}
+
+
+# ✅ Similar recent movies endpoint
 @app.get("/similar-recent/{movie_name}")
 async def get_similar_recent(movie_name: str):
     async with httpx.AsyncClient() as client:
         try:
-            # ── Clean query first ──────────────────────────────────────
             queries = _clean_query(movie_name)
 
-            # ── Step 1: Genre map ──────────────────────────────────────
             genre_resp = await client.get(
                 "https://api.themoviedb.org/3/genre/movie/list",
                 params={"api_key": TMDB_API_KEY},
@@ -302,7 +231,6 @@ async def get_similar_recent(movie_name: str):
             )
             genre_map = {g["id"]: g["name"] for g in genre_resp.json().get("genres", [])}
 
-            # ── Step 2: Search movie - try all query variations ─────────
             searched = None
             for query in queries:
                 search_resp = await client.get(
@@ -317,10 +245,10 @@ async def get_similar_recent(movie_name: str):
 
             if not searched:
                 return {"movies": []}
+
             tmdb_id = searched["id"]
             genre_ids = searched.get("genre_ids", [])
 
-            # ── Step 3: Get full details (collection + keywords) ───────
             detail_resp, keywords_resp = await asyncio.gather(
                 client.get(
                     f"https://api.themoviedb.org/3/movie/{tmdb_id}",
@@ -338,13 +266,11 @@ async def get_similar_recent(movie_name: str):
             collection_id = detail_data.get("belongs_to_collection", {})
             collection_id = collection_id.get("id") if collection_id else None
 
-            # Top 8 keywords for best matching
             keyword_ids = [
                 str(k["id"])
                 for k in keywords_resp.json().get("keywords", [])[:8]
             ]
 
-            # ── Step 4: Fire all fetches concurrently ──────────────────
             tasks = {
                 "similar": client.get(
                     f"https://api.themoviedb.org/3/movie/{tmdb_id}/similar",
@@ -356,7 +282,6 @@ async def get_similar_recent(movie_name: str):
                     params={"api_key": TMDB_API_KEY, "page": 1},
                     timeout=5.0,
                 ),
-                # Discover by keywords (most accurate for all movie types)
                 "by_keywords": client.get(
                     "https://api.themoviedb.org/3/discover/movie",
                     params={
@@ -370,7 +295,6 @@ async def get_similar_recent(movie_name: str):
                     },
                     timeout=5.0,
                 ) if keyword_ids else None,
-                # Discover by genres (fallback for all movie types)
                 "by_genres": client.get(
                     "https://api.themoviedb.org/3/discover/movie",
                     params={
@@ -386,7 +310,6 @@ async def get_similar_recent(movie_name: str):
                 ),
             }
 
-            # Run all non-None tasks concurrently
             keys = [k for k, v in tasks.items() if v is not None]
             responses = await asyncio.gather(
                 *[v for v in tasks.values() if v is not None],
@@ -397,12 +320,11 @@ async def get_similar_recent(movie_name: str):
                 for k, r in zip(keys, responses)
             }
 
-            similar_movies       = results_map.get("similar", [])
-            recommended_movies   = results_map.get("recommendations", [])
-            keyword_movies       = results_map.get("by_keywords", [])
-            genre_movies         = results_map.get("by_genres", [])
+            similar_movies     = results_map.get("similar", [])
+            recommended_movies = results_map.get("recommendations", [])
+            keyword_movies     = results_map.get("by_keywords", [])
+            genre_movies       = results_map.get("by_genres", [])
 
-            # ── Step 5: Fetch collection movies if exists ──────────────
             collection_movies = []
             if collection_id:
                 col_resp = await client.get(
@@ -412,13 +334,6 @@ async def get_similar_recent(movie_name: str):
                 )
                 collection_movies = col_resp.json().get("parts", [])
 
-            # ── Step 6: Merge by priority ──────────────────────────────
-            # Priority order:
-            # 1. collection (same series - Iron Man 2, 3 / Harry Potter etc.)
-            # 2. recommendations (TMDB curated)
-            # 3. keywords (thematically similar - war movies, superhero etc.)
-            # 4. similar (TMDB similar)
-            # 5. genres (broad fallback)
             seen_ids = {tmdb_id}
             merged = []
 
