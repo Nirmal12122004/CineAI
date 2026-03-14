@@ -47,7 +47,7 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
     try {
       await navigator.clipboard.writeText(movie.title);
       alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
-      window.open(url, "_blank");  // ← After alert
+      window.open(url, "_blank");
     } catch {
       const textArea = document.createElement("textarea");
       textArea.value = movie.title;
@@ -56,7 +56,7 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
       document.execCommand("copy");
       document.body.removeChild(textArea);
       alert("✅ Movie name copied!\nPaste it in Vegamovies search bar.");
-      window.open(url, "_blank");  // ← After alert
+      window.open(url, "_blank");
     }
   };
 
@@ -70,8 +70,8 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
         style={{ boxShadow: "var(--shadow-card)" }}
       >
 
-        {/* Poster */}
-        <div className="relative h-64 w-44 overflow-hidden rounded-lg shadow-lg group">
+        {/* ✅ Poster - responsive, fills card at any zoom level */}
+        <div className="relative w-full aspect-[2/3] overflow-hidden rounded-t-lg shadow-lg">
 
           <img
             src={
@@ -91,7 +91,7 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
             </div>
           )}
 
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none"></div>
 
           {/* Rating Badge */}
           <div
@@ -109,24 +109,22 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
             </div>
           )}
 
-          {/* Buttons */}
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2">
+          {/* ✅ Buttons - always fit inside poster at any zoom */}
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-2 px-2">
 
-            {/* Trailer */}
             <button
               onClick={handleTrailer}
-              className="flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-red-700 transition"
+              className="flex flex-1 items-center justify-center gap-1 rounded-md bg-red-600 px-2 py-1.5 text-[11px] font-medium text-white hover:bg-red-700 transition"
             >
-              <Play size={14} />
+              <Play size={12} />
               Trailer
             </button>
 
-            {/* Download */}
             <button
               onClick={handleDownload}
-              className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-white hover:bg-primary/80 transition"
+              className="flex flex-1 items-center justify-center gap-1 rounded-md bg-primary px-2 py-1.5 text-[11px] font-medium text-white hover:bg-primary/80 transition"
             >
-              <Download size={14} />
+              <Download size={12} />
               Download
             </button>
 
@@ -180,16 +178,13 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
       {/* 🎬 Trailer Modal */}
       {videoKey && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-
           <div className="relative w-[90%] max-w-4xl aspect-video">
-
             <button
               onClick={() => setVideoKey(null)}
               className="absolute -top-10 right-0 text-white"
             >
               <X size={28} />
             </button>
-
             <iframe
               className="w-full h-full rounded-lg"
               src={`https://www.youtube.com/embed/${videoKey}?autoplay=1&rel=0`}
@@ -197,12 +192,9 @@ export function MovieCard({ movie, index }: { movie: Movie; index: number }) {
               frameBorder="0"
               allowFullScreen
             ></iframe>
-
           </div>
-
         </div>
       )}
-
     </>
   );
 }
