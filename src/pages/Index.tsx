@@ -224,7 +224,7 @@ return (
               <div className="flex items-center gap-2 mb-6">
                 <Sparkles className="h-5 w-5 text-primary" />
                 <h2 className="font-display text-2xl text-foreground">
-                  Similar Movies You'll Love
+                  Similar Movies You'll Love based on dataset up to 2015
                 </h2>
               </div>
 
