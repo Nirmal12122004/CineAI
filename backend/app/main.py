@@ -464,17 +464,18 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
 
     async with httpx.AsyncClient() as client:
         try:
-            # Genre IDs — exclude Animation(16), Family(10751), Kids(10762), TV Movie(10770)
-            mood_map = {
-                "happy":      [35, 12, 10402],   # Comedy, Adventure, Music
-                "sad":        [18, 10749],        # Drama, Romance
-                "bored":      [28, 12, 53],       # Action, Adventure, Thriller
-                "angry":      [28, 53, 80],       # Action, Thriller, Crime
-                "excited":    [28, 12, 878],      # Action, Adventure, Sci-Fi
-                "romantic":   [10749, 18, 35],    # Romance, Drama, Comedy
-                "scared":     [27, 53, 9648],     # Horror, Thriller, Mystery
-                "thoughtful": [878, 9648, 18],    # Sci-Fi, Mystery, Drama
-                "relaxed":    [35, 10749, 18],    # Comedy, Romance, Drama
+            # "|" = OR logic in TMDB — movie needs just ONE of these genres
+            # "," = AND logic — avoid it, kills the result pool
+            mood_genre_or = {
+                "happy":      "35|12|10402",   # Comedy OR Adventure OR Music
+                "sad":        "18|10749",       # Drama OR Romance
+                "bored":      "28|12|53",       # Action OR Adventure OR Thriller
+                "angry":      "28|53|80",       # Action OR Thriller OR Crime
+                "excited":    "28|12|878",      # Action OR Adventure OR Sci-Fi
+                "romantic":   "10749|18|35",    # Romance OR Drama OR Comedy
+                "scared":     "27|53|9648",     # Horror OR Thriller OR Mystery
+                "thoughtful": "878|9648|18",    # Sci-Fi OR Mystery OR Drama
+                "relaxed":    "35|10749|18",    # Comedy OR Romance OR Drama
             }
 
             energy_sorts = {
@@ -483,12 +484,19 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
                 "high":   ["revenue.desc", "popularity.desc"],
             }
 
-            genre_ids = mood_map.get(mood.lower(), [28, 12])
+            with_genres = mood_genre_or.get(mood.lower(), "28|12")
             sorts = energy_sorts.get(energy.lower(), ["popularity.desc", "vote_average.desc"])
 
-            # Fetch 3 random pages across 2 sort strategies for variety every call
-            pages_to_fetch = random.sample(range(1, 6), 3)
-            fetch_tasks = []
+            # Get genre map + fetch pages in parallel
+            pages_to_fetch = random.sample(range(1, 8), 4)  # 4 random pages from 1-7
+
+            genre_fetch = client.get(
+                "https://api.themoviedb.org/3/genre/movie/list",
+                params={"api_key": TMDB_API_KEY},
+                timeout=5.0,
+            )
+
+            fetch_tasks = [genre_fetch]
             for sort_by in sorts:
                 for page in pages_to_fetch:
                     fetch_tasks.append(
@@ -496,11 +504,11 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
                             "https://api.themoviedb.org/3/discover/movie",
                             params={
                                 "api_key": TMDB_API_KEY,
-                                "with_genres": ",".join(map(str, genre_ids)),
-                                "without_genres": "16,10751,10762,10770",
+                                "with_genres": with_genres,        # OR logic — large pool
+                                "without_genres": "16,10751,10762,10770",  # exclude Animation, Family, Kids, TV
                                 "sort_by": sort_by,
-                                "vote_count.gte": 500,
-                                "vote_average.gte": 6.0,
+                                "vote_count.gte": 200,             # lowered so more films qualify
+                                "vote_average.gte": 5.5,           # lowered slightly
                                 "primary_release_date.gte": "1990-01-01",
                                 "page": page,
                             },
@@ -510,9 +518,15 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
 
             responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
+            # First response is genre map
+            genre_map = {}
+            if not isinstance(responses[0], Exception):
+                genre_map = {g["id"]: g["name"] for g in responses[0].json().get("genres", [])}
+
+            # Rest are movie results
             seen_ids = set()
             pool = []
-            for resp in responses:
+            for resp in responses[1:]:
                 if isinstance(resp, Exception):
                     continue
                 for m in resp.json().get("results", []):
@@ -524,7 +538,21 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
                     seen_ids.add(mid)
                     pool.append(m)
 
-            # Score by vote_average * log(vote_count) — rewards popular quality films
+            # Fallback: if pool still too small, fetch popular movies broadly
+            if len(pool) < 12:
+                fallback_resp = await client.get(
+                    "https://api.themoviedb.org/3/movie/popular",
+                    params={"api_key": TMDB_API_KEY, "page": random.randint(1, 5)},
+                    timeout=8.0,
+                )
+                for m in fallback_resp.json().get("results", []):
+                    mid = m.get("id")
+                    if not mid or mid in seen_ids or not m.get("poster_path"):
+                        continue
+                    seen_ids.add(mid)
+                    pool.append(m)
+
+            # Score: vote_average * log(vote_count) — rewards well-known quality films
             def score(m):
                 avg = m.get("vote_average", 0)
                 cnt = m.get("vote_count", 1)
@@ -532,17 +560,9 @@ async def mood_recommend(mood: str, energy: str, genre: str = ""):
 
             pool.sort(key=score, reverse=True)
 
-            # Shuffle top 60 so results differ every call
-            top_pool = pool[:60]
+            # Take top 80, shuffle so results differ every call
+            top_pool = pool[:80]
             random.shuffle(top_pool)
-
-            # Get genre names
-            genre_resp = await client.get(
-                "https://api.themoviedb.org/3/genre/movie/list",
-                params={"api_key": TMDB_API_KEY},
-                timeout=5.0,
-            )
-            genre_map = {g["id"]: g["name"] for g in genre_resp.json().get("genres", [])}
 
             result_movies = []
             for m in top_pool[:12]:
