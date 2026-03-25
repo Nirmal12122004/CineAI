@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
+import MoodToMovie from "./pages/MoodToMovie";
 
 // Configure React Query properly for API calls
 const queryClient = new QueryClient({
@@ -27,6 +28,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="*" element={<NotFound />} />
+          <Route path="/mood" element={<MoodToMovie />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>

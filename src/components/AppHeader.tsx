@@ -1,6 +1,6 @@
 import { Film, BarChart3, Home } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-
+import { Sparkles } from "lucide-react";
 export function AppHeader() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border glass">
@@ -20,6 +20,10 @@ export function AppHeader() {
           <NavLink to="/analytics" className="px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-2" activeClassName="text-primary bg-primary/10">
             <BarChart3 className="h-4 w-4" />
             Analytics
+          </NavLink>
+          <NavLink to="/mood" className="px-4 py-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-2" activeClassName="text-primary bg-primary/10">
+            <Sparkles className="h-4 w-4" />
+             Mood
           </NavLink>
         </nav>
       </div>
