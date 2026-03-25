@@ -1,318 +1,214 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { Sparkles, Send, RotateCcw, Film, Loader2 } from "lucide-react";
+import { Sparkles, RotateCcw, Play } from "lucide-react";
 
-const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
+type Step = 0 | 1 | 2 | 3 | 4;
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface MovieRecommendation {
+interface Movie {
   title: string;
   reason: string;
-  genre: string;
-  year: string;
 }
 
+const TMDB_IMAGE = "https://image.tmdb.org/t/p/w500";
+
+// 🎬 Expanded Movie DB with IDs (for posters)
+const MOVIE_DB: Record<string, Movie[]> = {
+  happy_fun: [
+    { title: "Zindagi Na Milegi Dobara", reason: "Feel-good friendship vibes" },
+    { title: "The Intern", reason: "Light and heartwarming story" },
+    { title: "3 Idiots", reason: "Funny and inspiring" },
+  ],
+  sad_emotional: [
+    { title: "The Pursuit of Happyness", reason: "Motivational and emotional" },
+    { title: "Taare Zameen Par", reason: "Heart-touching story" },
+    { title: "A Silent Voice", reason: "Deep emotional journey" },
+  ],
+  bored_fun: [
+    { title: "Jumanji", reason: "Fun adventure" },
+    { title: "Deadpool", reason: "Crazy entertaining action" },
+    { title: "Rush Hour", reason: "Comedy + action combo" },
+  ],
+  angry_action: [
+    { title: "John Wick", reason: "Pure action energy" },
+    { title: "The Dark Knight", reason: "Intense and powerful" },
+    { title: "Mad Max: Fury Road", reason: "High adrenaline ride" },
+  ],
+};
+
+// 🔥 Poster fetch (TMDB API)
+const fetchPoster = async (title: string) => {
+  try {
+    const res = await fetch(
+      `https://api.themoviedb.org/3/search/movie?api_key=33a1bdb6830ef7bf349e480fc07cef3c&query=${encodeURIComponent(
+        title
+      )}`
+    );
+    const data = await res.json();
+    return data.results?.[0]?.poster_path
+      ? TMDB_IMAGE + data.results[0].poster_path
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function MoodToMovie() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [recommendations, setRecommendations] = useState<MovieRecommendation[]>([]);
-  const [moodSummary, setMoodSummary] = useState("");
-  const [posters, setPosters] = useState<Record<string, string>>({});
-  const [started, setStarted] = useState(false);
-  const [serverWaking, setServerWaking] = useState(true);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [step, setStep] = useState<Step>(0);
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [movies, setMovies] = useState<any[]>([]);
+  const [moodLabel, setMoodLabel] = useState("");
 
-  // 🔥 Wake server on load
-  useEffect(() => {
-    fetch(`${BACKEND_URL}/health`)
-      .catch(() => {})
-      .finally(() => setServerWaking(false));
-  }, []);
-
-  // 🔥 Keep server alive
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetch(`${BACKEND_URL}/health`).catch(() => {});
-    }, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  const callGemini = async (msgs: Message[], attempt = 0): Promise<string | null> => {
-    const MAX_RETRIES = 3;
-    const TIMEOUT_MS = 45000; // ✅ fixed
-
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-      const response = await fetch(`${BACKEND_URL}/mood-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: msgs }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timer);
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const data = await response.json();
-      return data.response || null;
-    } catch {
-      if (attempt < MAX_RETRIES - 1) {
-        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
-        return callGemini(msgs, attempt + 1);
-      }
-      return null;
-    }
+  // 🎬 Trailer (fixed accurate search)
+  const playTrailer = (title: string) => {
+    const query = encodeURIComponent(`${title} official trailer`);
+    window.open(`https://www.youtube.com/results?search_query=${query}`, "_blank");
   };
 
-  const startConversation = async () => {
-    setStarted(true);
-    setLoading(true);
+  const calculateMood = async (ans: string[]) => {
+    const key = `${ans[0]}_${ans[1]}`;
 
-    const firstMessage = await callGemini([]);
+    const moodMap: Record<string, string> = {
+      happy_fun: "😊 Feel-Good & Fun",
+      sad_emotional: "😔 Emotional Healing",
+      bored_fun: "😴 Entertaining Escape",
+      angry_action: "😡 Action & Intense",
+    };
 
-    setMessages([
-      {
-        role: "assistant",
-        content:
-          firstMessage ||
-          "⏳ Server is waking up... please wait a few seconds and try again.",
-      },
-    ]);
+    setMoodLabel(moodMap[key] || "🎬 Recommended");
 
-    setLoading(false);
+    const baseMovies = MOVIE_DB[key] || MOVIE_DB["happy_fun"];
+
+    // 🔥 Fetch posters
+    const enriched = await Promise.all(
+      baseMovies.map(async (m) => ({
+        ...m,
+        poster: await fetchPoster(m.title),
+      }))
+    );
+
+    setMovies(enriched);
+    setStep(4);
   };
 
-  const fetchPoster = async (title: string) => {
-    try {
-      const res = await fetch(
-        `${BACKEND_URL}/movie-details-by-title/${encodeURIComponent(title)}`
-      );
-      const data = await res.json();
-      if (data.poster) {
-        setPosters((prev) => ({ ...prev, [title]: data.poster }));
-      }
-    } catch {}
-  };
+  const handleAnswer = (value: string) => {
+    const newAnswers = [...answers, value];
+    setAnswers(newAnswers);
 
-  const parseRecommendations = (text: string): boolean => {
-    try {
-      const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
-      const start = cleaned.indexOf("{");
-      if (start === -1) return false;
-
-      let depth = 0;
-      let end = -1;
-      for (let i = start; i < cleaned.length; i++) {
-        if (cleaned[i] === "{") depth++;
-        else if (cleaned[i] === "}") {
-          depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
-        }
-      }
-
-      if (end === -1) return false;
-
-      const parsed = JSON.parse(cleaned.slice(start, end + 1));
-
-      if (parsed.recommendations && parsed.mood_summary) {
-        setMoodSummary(parsed.mood_summary);
-        setRecommendations(parsed.recommendations);
-        parsed.recommendations.forEach((m: MovieRecommendation) =>
-          fetchPoster(m.title)
-        );
-        return true;
-      }
-    } catch {}
-    return false;
-  };
-
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-
-    const userMessage: Message = { role: "user", content: input.trim() };
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    setInput("");
-    setLoading(true);
-
-    // ⏳ Friendly delay message
-    const timeout = setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "⏳ Still working... server is waking up. Please wait a few seconds.",
-        },
-      ]);
-    }, 6000);
-
-    const response = await callGemini(newMessages);
-    clearTimeout(timeout);
-
-    if (response) {
-      const isRecommendation = parseRecommendations(response);
-      if (!isRecommendation) {
-        setMessages([...newMessages, { role: "assistant", content: response }]);
-      }
+    if (step === 2) {
+      calculateMood(newAnswers);
     } else {
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content:
-            "⚠️ Server is busy right now. Please try again in a moment.",
-        },
-      ]);
+      setStep((prev) => (prev + 1) as Step);
     }
-
-    setLoading(false);
   };
 
   const reset = () => {
-    setMessages([]);
-    setRecommendations([]);
-    setMoodSummary("");
-    setPosters({});
-    setStarted(false);
-    setInput("");
+    setStep(0);
+    setAnswers([]);
+    setMovies([]);
   };
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <div className="container py-10 max-w-2xl mx-auto">
+      <div className="container py-10 max-w-5xl mx-auto text-center">
+
         {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8 space-y-2"
-        >
-          <div className="flex items-center justify-center gap-2">
-            <Sparkles className="h-6 w-6 text-primary" />
-            <h1 className="font-display text-4xl text-foreground">
-              Mood to <span className="text-gradient">Movie</span>
-            </h1>
-          </div>
-          <p className="text-muted-foreground">
-            Tell AI how you feel — get perfect movie recommendations
-          </p>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <h1 className="text-4xl font-display">
+            Mood to <span className="text-gradient">Movie</span>
+          </h1>
         </motion.div>
 
-        {/* Start Screen */}
-        {!started && (
-          <motion.div className="text-center space-y-6 py-10">
-            <div className="text-6xl">🎭</div>
+        <AnimatePresence mode="wait">
 
-            {serverWaking && (
-              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                <Loader2 size={13} className="animate-spin text-primary" />
-                <span>Warming up server…</span>
-              </div>
-            )}
-
-            <button
-              onClick={startConversation}
-              className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-full font-medium text-lg"
+          {/* Start */}
+          {step === 0 && (
+            <motion.button
+              key="start"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setStep(1)}
+              className="mt-10 bg-primary text-white px-8 py-3 rounded-full flex items-center gap-2 mx-auto"
             >
-              Discover My Movies
-            </button>
-          </motion.div>
-        )}
+              <Sparkles size={18} /> Start
+            </motion.button>
+          )}
 
-        {/* Chat UI */}
-        {started && recommendations.length === 0 && (
-          <motion.div className="space-y-4">
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              <AnimatePresence>
-                {messages.map((msg, i) => (
+          {/* Q1 */}
+          {step === 1 && (
+            <motion.div key="q1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h2 className="text-xl mt-10 mb-4">How are you feeling?</h2>
+              <div className="grid gap-3 max-w-sm mx-auto">
+                {["happy", "sad", "bored", "angry"].map((m) => (
+                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Q2 */}
+          {step === 2 && (
+            <motion.div key="q2" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h2 className="text-xl mt-10 mb-4">What do you want?</h2>
+              <div className="grid gap-3 max-w-sm mx-auto">
+                {["fun", "emotional", "action"].map((m) => (
+                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Results */}
+          {step === 4 && (
+            <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h2 className="text-2xl mt-6 mb-6">{moodLabel}</h2>
+
+              <div className="grid md:grid-cols-3 gap-6">
+                {movies.map((movie) => (
                   <motion.div
-                    key={i}
-                    className={`flex ${
-                      msg.role === "user" ? "justify-end" : "justify-start"
-                    }`}
+                    key={movie.title}
+                    whileHover={{ scale: 1.05 }}
+                    className="bg-card rounded-xl overflow-hidden shadow-lg"
                   >
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
-                        msg.role === "user"
-                          ? "bg-primary text-white"
-                          : "bg-card border border-border text-foreground"
-                      }`}
-                    >
-                      {msg.content}
+                    <img
+                      src={movie.poster || "/placeholder.png"}
+                      className="w-full h-72 object-cover"
+                    />
+
+                    <div className="p-4 text-left">
+                      <h3 className="font-semibold">{movie.title}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {movie.reason}
+                      </p>
+
+                      <button
+                        onClick={() => playTrailer(movie.title)}
+                        className="mt-3 flex items-center gap-2 text-primary"
+                      >
+                        <Play size={16} /> Watch Trailer
+                      </button>
                     </div>
                   </motion.div>
                 ))}
-              </AnimatePresence>
-
-              {loading && (
-                <div className="text-sm text-muted-foreground">
-                  Thinking...
-                </div>
-              )}
-
-              <div ref={bottomRef} />
-            </div>
-
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder="Type your answer..."
-                className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm"
-              />
-              <button
-                onClick={sendMessage}
-                className="bg-primary text-white rounded-full p-3"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Recommendations */}
-        {recommendations.length > 0 && (
-          <motion.div className="space-y-6">
-            <div className="text-center">
-              <p className="italic text-foreground">"{moodSummary}"</p>
-            </div>
-
-            {recommendations.map((movie) => (
-              <div key={movie.title} className="border p-4 rounded-xl">
-                <h3 className="font-semibold">{movie.title}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {movie.reason}
-                </p>
               </div>
-            ))}
 
-            <button
-              onClick={reset}
-              className="w-full border rounded-full py-2"
-            >
-              Reset
-            </button>
-          </motion.div>
-        )}
+              <button
+                onClick={reset}
+                className="mt-8 border px-6 py-2 rounded-full flex items-center gap-2 mx-auto"
+              >
+                <RotateCcw size={16} /> Try Again
+              </button>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
       </div>
     </div>
   );
