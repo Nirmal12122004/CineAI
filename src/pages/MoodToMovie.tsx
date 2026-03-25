@@ -15,37 +15,7 @@ interface MovieRecommendation {
   reason: string;
   genre: string;
   year: string;
-  poster?: string;
 }
-
-const SYSTEM_PROMPT = `You are CineAI's Mood Analyst — a warm, witty movie expert who identifies the user's mood through a short conversation and recommends perfect movies.
-
-Your job:
-1. Ask 3-4 fun, creative questions ONE AT A TIME to understand the user's current mood, energy level, and what kind of experience they want.
-2. Make questions feel like a fun quiz, not an interrogation. Be playful and conversational.
-3. After 3-4 questions, analyze the mood and recommend exactly 5 movies.
-
-Question examples (pick relevant ones, don't use all):
-- "If your current mood were weather, what would it be? ⛈️ stormy, ☀️ sunny, 🌫️ foggy, or 🌈 after-the-rain?"
-- "Do you want to feel something deeply or just switch your brain off?"
-- "Pick a vibe: 🔥 intense & gripping, 😂 laugh till you cry, 😢 have a good cry, 🤯 mind blown, or 💆 totally relaxed?"
-- "How much mental energy do you have right now? Full tank, half tank, or running on fumes?"
-- "What happened today? (in 5 words or less)"
-
-After collecting enough info (3-4 exchanges), respond with EXACTLY this JSON format and nothing else:
-{
-  "mood_summary": "A poetic 1-sentence description of their mood",
-  "recommendations": [
-    {
-      "title": "Movie Title",
-      "year": "2010",
-      "genre": "Thriller/Sci-Fi",
-      "reason": "One sentence why this fits their mood perfectly"
-    }
-  ]
-}
-
-Keep responses SHORT and fun. One question at a time. Never ask multiple questions at once.`;
 
 export default function MoodToMovie() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -61,41 +31,32 @@ export default function MoodToMovie() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  const callGemini = async (msgs: Message[]): Promise<string | null> => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/mood-chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: msgs }),
+      });
+      const data = await response.json();
+      return data.response || null;
+    } catch (err) {
+      console.error("Mood chat error:", err);
+      return null;
+    }
+  };
+
   const startConversation = async () => {
     setStarted(true);
     setLoading(true);
-
-    const firstMessage = await callClaude([]);
+    const firstMessage = await callGemini([]);
     if (firstMessage) {
       setMessages([{ role: "assistant", content: firstMessage }]);
     }
     setLoading(false);
   };
 
-  const callClaude = async (msgs: Message[]): Promise<string | null> => {
-    try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: SYSTEM_PROMPT,
-          messages: msgs.length === 0
-            ? [{ role: "user", content: "Start the mood analysis. Ask your first question." }]
-            : msgs,
-        }),
-      });
-
-      const data = await response.json();
-      return data.content?.[0]?.text || null;
-    } catch (err) {
-      console.error("Claude API error:", err);
-      return null;
-    }
-  };
-
-  const fetchPoster = async (title: string, year: string) => {
+  const fetchPoster = async (title: string) => {
     try {
       const res = await fetch(
         `${BACKEND_URL}/movie-details-by-title/${encodeURIComponent(title)}`
@@ -111,15 +72,12 @@ export default function MoodToMovie() {
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return false;
-
       const parsed = JSON.parse(jsonMatch[0]);
       if (parsed.recommendations && parsed.mood_summary) {
         setMoodSummary(parsed.mood_summary);
         setRecommendations(parsed.recommendations);
-
-        // Fetch posters for all recommended movies
         parsed.recommendations.forEach((m: MovieRecommendation) => {
-          fetchPoster(m.title, m.year);
+          fetchPoster(m.title);
         });
         return true;
       }
@@ -136,11 +94,10 @@ export default function MoodToMovie() {
     setInput("");
     setLoading(true);
 
-    const response = await callClaude(newMessages);
+    const response = await callGemini(newMessages);
 
     if (response) {
       const isRecommendation = parseRecommendations(response);
-
       if (!isRecommendation) {
         setMessages([...newMessages, { role: "assistant", content: response }]);
       }
@@ -190,7 +147,8 @@ export default function MoodToMovie() {
           >
             <div className="text-6xl">🎭</div>
             <p className="text-muted-foreground max-w-md mx-auto">
-              Our AI will ask you a few fun questions to understand your current mood and recommend the perfect movies for you right now.
+              Our AI will ask you a few fun questions to understand your
+              current mood and recommend the perfect movies for you right now.
             </p>
             <button
               onClick={startConversation}
@@ -209,7 +167,6 @@ export default function MoodToMovie() {
             animate={{ opacity: 1 }}
             className="space-y-4"
           >
-            {/* Messages */}
             <div className="space-y-4 min-h-64 max-h-96 overflow-y-auto pr-2">
               <AnimatePresence>
                 {messages.map((msg, i) => (

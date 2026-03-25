@@ -6,6 +6,7 @@ from rapidfuzz import process, fuzz
 import httpx
 import asyncio
 import re
+import os
 
 app = FastAPI(title="AI Movie Recommendation API")
 
@@ -57,7 +58,6 @@ KNOWN_TITLES = [
     "schindler list", "gladiator", "braveheart",
 ]
 
-# ✅ Global compound fixes - checked FIRST
 COMPOUND_FIXES = {
     "ironman": "iron man",
     "spiderman": "spider man",
@@ -84,6 +84,35 @@ COMPOUND_FIXES = {
     "avengersendgame": "avengers endgame",
 }
 
+MOOD_SYSTEM_PROMPT = """You are CineAI's Mood Analyst — a warm, witty movie expert who identifies the user's mood through a short conversation and recommends perfect movies.
+
+Your job:
+1. Ask 3-4 fun, creative questions ONE AT A TIME to understand the user's current mood, energy level, and what kind of experience they want.
+2. Make questions feel like a fun quiz, not an interrogation. Be playful and conversational.
+3. After 3-4 questions, analyze the mood and recommend exactly 5 movies.
+
+Question examples (pick relevant ones):
+- "If your current mood were weather, what would it be? ⛈️ stormy, ☀️ sunny, 🌫️ foggy, or 🌈 after-the-rain?"
+- "Do you want to feel something deeply or just switch your brain off?"
+- "Pick a vibe: 🔥 intense and gripping, 😂 laugh till you cry, 😢 have a good cry, 🤯 mind blown, or 💆 totally relaxed?"
+- "How much mental energy do you have right now? Full tank, half tank, or running on fumes?"
+- "What happened today? (in 5 words or less)"
+
+After collecting enough info (3-4 exchanges), respond with EXACTLY this JSON format and nothing else:
+{
+  "mood_summary": "A poetic 1-sentence description of their mood",
+  "recommendations": [
+    {
+      "title": "Movie Title",
+      "year": "2010",
+      "genre": "Thriller/Sci-Fi",
+      "reason": "One sentence why this fits their mood perfectly"
+    }
+  ]
+}
+
+Keep responses SHORT and fun. One question at a time. Never ask multiple questions at once."""
+
 
 def _fuzzy_correct(movie_name: str) -> str | None:
     cleaned = re.sub(r'[-_.]', ' ', movie_name).lower().strip()
@@ -97,36 +126,28 @@ def _clean_query(movie_name: str) -> list[str]:
     original = movie_name.strip()
     no_space = re.sub(r'[-_.\s]', '', original).lower()
 
-    # ✅ Result list - compound fix goes FIRST so TMDB gets correct query
     result = []
 
-    # 1. Compound fix FIRST (ironman → iron man)
     if no_space in COMPOUND_FIXES:
         result.append(COMPOUND_FIXES[no_space])
 
-    # 2. Original
     if original not in result:
         result.append(original)
 
-    # 3. Lowercase original
     lower = original.lower()
     if lower not in result:
         result.append(lower)
 
-    # 4. Replace hyphens/underscores with spaces
     spaced = re.sub(r'[-_.]', ' ', original).strip()
     if spaced not in result:
         result.append(spaced)
 
-    # 5. CamelCase → Camel Case
     camel = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', original).strip()
     if camel not in result:
         result.append(camel)
 
-    # 6. Fuzzy correction (iornman → iron man)
     fuzzy = _fuzzy_correct(original)
     if fuzzy and fuzzy not in result:
-        # Put fuzzy second if no compound fix, else third
         insert_pos = 1 if not COMPOUND_FIXES.get(no_space) else 2
         result.insert(insert_pos, fuzzy)
 
@@ -216,14 +237,12 @@ async def get_trailer(movie_name: str):
             return {"trailer_key": None, "error": str(e)}
 
 
-# ✅ Movie details by title
 @app.get("/movie-details-by-title/{movie_title}")
 async def get_movie_details_by_title(movie_title: str):
     async with httpx.AsyncClient() as client:
         try:
             queries = _clean_query(movie_title)
 
-            # Search TMDB to get correct movie ID
             tmdb_id = None
             for query in queries:
                 search_resp = await client.get(
@@ -239,7 +258,6 @@ async def get_movie_details_by_title(movie_title: str):
             if not tmdb_id:
                 return {"error": "Movie not found"}
 
-            # Fetch details + credits concurrently
             details_resp, credits_resp = await asyncio.gather(
                 client.get(
                     f"https://api.themoviedb.org/3/movie/{tmdb_id}",
@@ -437,3 +455,56 @@ async def get_similar_recent(movie_name: str):
 
         except Exception as e:
             return {"movies": [], "error": str(e)}
+
+
+# ✅ Mood to Movie - Gemini AI
+@app.post("/mood-chat")
+async def mood_chat(request: dict):
+    messages = request.get("messages", [])
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+    if not GEMINI_API_KEY:
+        return {"response": None, "error": "GEMINI_API_KEY not set"}
+
+    # Build Gemini conversation format
+    gemini_messages = []
+    for msg in messages:
+        gemini_messages.append({
+            "role": "user" if msg["role"] == "user" else "model",
+            "parts": [{"text": msg["content"]}]
+        })
+
+    # If no messages, start the conversation
+    if not gemini_messages:
+        gemini_messages = [{
+            "role": "user",
+            "parts": [{"text": "Start the mood analysis. Ask your first question."}]
+        }]
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "system_instruction": {
+                        "parts": [{"text": MOOD_SYSTEM_PROMPT}]
+                    },
+                    "contents": gemini_messages,
+                    "generationConfig": {
+                        "maxOutputTokens": 1000,
+                        "temperature": 0.8,
+                    }
+                },
+                timeout=30.0,
+            )
+            data = response.json()
+            text = (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            )
+            return {"response": text}
+        except Exception as e:
+            return {"response": None, "error": str(e)}
