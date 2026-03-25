@@ -457,71 +457,56 @@ async def get_similar_recent(movie_name: str):
             return {"movies": [], "error": str(e)}
 
 
-# ✅ Mood to Movie - Gemini AI (Fixed)
-@app.post("/mood-chat")
-async def mood_chat(request: dict):
-    messages = request.get("messages", [])
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-    if not GEMINI_API_KEY:
-        return {"response": None, "error": "GEMINI_API_KEY not set"}
-
-    # ✅ Inject system prompt as first exchange (works with all Gemini models)
-    gemini_messages = [
-        {
-            "role": "user",
-            "parts": [{"text": f"[SYSTEM INSTRUCTIONS]\n{MOOD_SYSTEM_PROMPT}\n[END INSTRUCTIONS]\n\nAcknowledge you understand."}]
-        },
-        {
-            "role": "model",
-            "parts": [{"text": "Understood! I'll ask fun questions one at a time to find your perfect movie. 🎬"}]
-        }
-    ]
-
-    # Add real conversation history
-    for msg in messages:
-        gemini_messages.append({
-            "role": "user" if msg["role"] == "user" else "model",
-            "parts": [{"text": msg["content"]}]
-        })
-
-    # If no user messages yet, trigger first question
-    if not messages:
-        gemini_messages.append({
-            "role": "user",
-            "parts": [{"text": "Ask me your first question!"}]
-        })
-
+@app.get("/mood-recommend")
+async def mood_recommend(mood: str, energy: str, genre: str = ""):
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": gemini_messages,
-                    "generationConfig": {
-                        "maxOutputTokens": 1000,
-                        "temperature": 0.8,
-                    }
-                },
-                timeout=30.0,
+            mood_map = {
+                "happy": [35, 10751],
+                "sad": [18],
+                "excited": [28, 12],
+                "romantic": [10749],
+                "scared": [27, 53],
+                "thoughtful": [878, 9648],
+                "relaxed": [16, 14],
+            }
+
+            energy_map = {
+                "low": "popularity.desc",
+                "medium": "vote_average.desc",
+                "high": "revenue.desc"
+            }
+
+            genre_ids = mood_map.get(mood.lower(), [28])
+            sort_by = energy_map.get(energy.lower(), "popularity.desc")
+
+            params = {
+                "api_key": TMDB_API_KEY,
+                "with_genres": ",".join(map(str, genre_ids)),
+                "sort_by": sort_by,
+                "vote_count.gte": 100,
+                "page": 1
+            }
+
+            response = await client.get(
+                "https://api.themoviedb.org/3/discover/movie",
+                params=params,
+                timeout=5.0
             )
-            data = response.json()
 
-            # ✅ Better parsing with full error info
-            candidates = data.get("candidates", [])
-            if not candidates:
-                return {"response": None, "error": f"No candidates: {data}"}
+            movies = response.json().get("results", [])
 
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if not parts:
-                return {"response": None, "error": f"No parts: {candidates[0]}"}
-
-            text = parts[0].get("text", "").strip()
-            if not text:
-                return {"response": None, "error": f"Empty text: {parts}"}
-
-            return {"response": text}
+            return {
+                "movies": [
+                    {
+                        "title": m["title"],
+                        "poster": f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else None,
+                        "rating": round(m.get("vote_average", 0)/2, 1),
+                        "overview": m.get("overview", "")
+                    }
+                    for m in movies[:12]
+                ]
+            }
 
         except Exception as e:
-            return {"response": None, "error": str(e)}
+            return {"movies": [], "error": str(e)}

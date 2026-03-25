@@ -7,88 +7,56 @@ type Step = 0 | 1 | 2 | 3 | 4;
 
 interface Movie {
   title: string;
+  poster: string | null;
   reason: string;
 }
 
-const BACKEND_URL = "https://cineai-backend-8ark.onrender.com"; // 🔁 replace this
-
-// 🎬 Movie DB
-const MOVIE_DB: Record<string, Movie[]> = {
-  happy_fun: [
-    { title: "Zindagi Na Milegi Dobara", reason: "Feel-good friendship vibes" },
-    { title: "The Intern", reason: "Light and heartwarming story" },
-    { title: "3 Idiots", reason: "Funny and inspiring" },
-  ],
-  sad_emotional: [
-    { title: "The Pursuit of Happyness", reason: "Motivational and emotional" },
-    { title: "Taare Zameen Par", reason: "Heart-touching story" },
-    { title: "A Silent Voice", reason: "Deep emotional journey" },
-  ],
-  bored_fun: [
-    { title: "Jumanji", reason: "Fun adventure" },
-    { title: "Deadpool", reason: "Crazy entertaining action" },
-    { title: "Rush Hour", reason: "Comedy + action combo" },
-  ],
-  angry_action: [
-    { title: "John Wick", reason: "Pure action energy" },
-    { title: "The Dark Knight", reason: "Intense and powerful" },
-    { title: "Mad Max: Fury Road", reason: "High adrenaline ride" },
-  ],
-};
-
-// 🔐 Fetch poster from backend
-const fetchPoster = async (title: string) => {
-  try {
-    const res = await fetch(
-      `${BACKEND_URL}/poster?title=${encodeURIComponent(title)}`
-    );
-    const data = await res.json();
-    return data.poster;
-  } catch (err) {
-    console.error("Poster fetch error:", err);
-    return null;
-  }
-};
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
 export default function MoodToMovie() {
   const [step, setStep] = useState<Step>(0);
   const [answers, setAnswers] = useState<string[]>([]);
-  const [movies, setMovies] = useState<any[]>([]);
+  const [movies, setMovies] = useState<Movie[]>([]);
+  const [trailer, setTrailer] = useState<string | null>(null);
   const [moodLabel, setMoodLabel] = useState("");
 
-  // 🎬 Trailer (same tab)
-  const playTrailer = (title: string) => {
-    const query = encodeURIComponent(`${title} official trailer`);
-    window.open(
-      `https://www.youtube.com/results?search_query=${query}`,
-      "_self"
-    );
+  // 🎯 Fetch recommendations from backend
+  const calculateMood = async (ans: string[]) => {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/mood-recommend?mood=${ans[0]}&energy=${ans[2]}&genre=${ans[1]}`
+      );
+
+      const data = await res.json();
+
+      setMoodLabel("🎯 Perfect picks based on your mood");
+
+      setMovies(
+        data.movies.map((m: any) => ({
+          title: m.title,
+          poster: m.poster,
+          reason: m.overview || "Perfect match for your mood",
+        }))
+      );
+
+      setStep(4);
+    } catch (err) {
+      console.error("Recommendation error:", err);
+    }
   };
 
-  const calculateMood = async (ans: string[]) => {
-    const key = `${ans[0]}_${ans[1]}`;
+  // 🎬 Trailer inside app (modal)
+  const playTrailer = async (title: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/trailer/${title}`);
+      const data = await res.json();
 
-    const moodMap: Record<string, string> = {
-      happy_fun: "😊 Feel-Good & Fun",
-      sad_emotional: "😔 Emotional Healing",
-      bored_fun: "😴 Entertaining Escape",
-      angry_action: "😡 Action & Intense",
-    };
-
-    setMoodLabel(moodMap[key] || "🎬 Recommended");
-
-    const baseMovies = MOVIE_DB[key] || MOVIE_DB["happy_fun"];
-
-    // 🔥 Fetch posters
-    const enriched = await Promise.all(
-      baseMovies.map(async (m) => ({
-        ...m,
-        poster: await fetchPoster(m.title),
-      }))
-    );
-
-    setMovies(enriched);
-    setStep(4);
+      if (data.trailer_key) {
+        setTrailer(`https://www.youtube.com/embed/${data.trailer_key}`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleAnswer = (value: string) => {
@@ -106,10 +74,11 @@ export default function MoodToMovie() {
     setStep(0);
     setAnswers([]);
     setMovies([]);
+    setTrailer(null);
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
       <AppHeader />
 
       <div className="container py-10 max-w-5xl mx-auto text-center">
@@ -163,12 +132,12 @@ export default function MoodToMovie() {
             </motion.div>
           )}
 
-          {/* Q3 (NEW) */}
+          {/* Q3 */}
           {step === 3 && (
             <motion.div key="q3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <h2 className="text-xl mt-10 mb-4">Preferred vibe?</h2>
               <div className="grid gap-3 max-w-sm mx-auto">
-                {["light", "intense"].map((m) => (
+                {["low", "medium", "high"].map((m) => (
                   <button key={m} onClick={() => handleAnswer(m)} className="btn">
                     {m}
                   </button>
@@ -180,9 +149,7 @@ export default function MoodToMovie() {
           {/* Results */}
           {step === 4 && (
             <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-2xl mt-6 mb-6">
-                🎯 Based on your mood, here are perfect movies for you
-              </h2>
+              <h2 className="text-2xl mt-6 mb-6">{moodLabel}</h2>
 
               <div className="grid md:grid-cols-3 gap-6">
                 {movies.map((movie) => (
@@ -223,6 +190,25 @@ export default function MoodToMovie() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* 🎬 Trailer Modal */}
+      {trailer && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="w-[90%] md:w-[70%] h-[60%] relative">
+            <iframe
+              src={trailer}
+              className="w-full h-full rounded-xl"
+              allowFullScreen
+            />
+            <button
+              onClick={() => setTrailer(null)}
+              className="absolute top-2 right-2 bg-white text-black px-3 py-1 rounded"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
