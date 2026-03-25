@@ -69,28 +69,47 @@ export default function MoodToMovie() {
   };
 
   const parseRecommendations = (text: string): boolean => {
-  try {
-    // ✅ Strip markdown code blocks before parsing
-    const cleaned = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    try {
+      // Strip markdown code fences
+      const cleaned = text
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
 
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return false;
+      // Find the outermost { ... } by tracking brace depth
+      // This handles leading conversational prose before the JSON blob
+      const start = cleaned.indexOf("{");
+      if (start === -1) return false;
 
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (parsed.recommendations && parsed.mood_summary) {
-      setMoodSummary(parsed.mood_summary);
-      setRecommendations(parsed.recommendations);
-      parsed.recommendations.forEach((m: MovieRecommendation) => {
-        fetchPoster(m.title);
-      });
-      return true;
-    }
-  } catch {}
-  return false;
-};
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < cleaned.length; i++) {
+        if (cleaned[i] === "{") depth++;
+        else if (cleaned[i] === "}") {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+
+      if (end === -1) return false;
+
+      const jsonStr = cleaned.slice(start, end + 1);
+      const parsed = JSON.parse(jsonStr);
+
+      if (parsed.recommendations && parsed.mood_summary) {
+        setMoodSummary(parsed.mood_summary);
+        setRecommendations(parsed.recommendations);
+        parsed.recommendations.forEach((m: MovieRecommendation) => {
+          fetchPoster(m.title);
+        });
+        return true;
+      }
+    } catch {}
+    return false;
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
