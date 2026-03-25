@@ -459,54 +459,110 @@ async def get_similar_recent(movie_name: str):
 
 @app.get("/mood-recommend")
 async def mood_recommend(mood: str, energy: str, genre: str = ""):
+    import random
+    import math
+
     async with httpx.AsyncClient() as client:
         try:
+            # Genre IDs — exclude Animation(16), Family(10751), Kids(10762), TV Movie(10770)
             mood_map = {
-                "happy": [35, 10751],
-                "sad": [18],
-                "excited": [28, 12],
-                "romantic": [10749],
-                "scared": [27, 53],
-                "thoughtful": [878, 9648],
-                "relaxed": [16, 14],
+                "happy":      [35, 12, 10402],   # Comedy, Adventure, Music
+                "sad":        [18, 10749],        # Drama, Romance
+                "bored":      [28, 12, 53],       # Action, Adventure, Thriller
+                "angry":      [28, 53, 80],       # Action, Thriller, Crime
+                "excited":    [28, 12, 878],      # Action, Adventure, Sci-Fi
+                "romantic":   [10749, 18, 35],    # Romance, Drama, Comedy
+                "scared":     [27, 53, 9648],     # Horror, Thriller, Mystery
+                "thoughtful": [878, 9648, 18],    # Sci-Fi, Mystery, Drama
+                "relaxed":    [35, 10749, 18],    # Comedy, Romance, Drama
             }
 
-            energy_map = {
-                "low": "popularity.desc",
-                "medium": "vote_average.desc",
-                "high": "revenue.desc"
+            energy_sorts = {
+                "low":    ["vote_average.desc", "popularity.desc"],
+                "medium": ["popularity.desc", "vote_average.desc"],
+                "high":   ["revenue.desc", "popularity.desc"],
             }
 
-            genre_ids = mood_map.get(mood.lower(), [28])
-            sort_by = energy_map.get(energy.lower(), "popularity.desc")
+            genre_ids = mood_map.get(mood.lower(), [28, 12])
+            sorts = energy_sorts.get(energy.lower(), ["popularity.desc", "vote_average.desc"])
 
-            params = {
-                "api_key": TMDB_API_KEY,
-                "with_genres": ",".join(map(str, genre_ids)),
-                "sort_by": sort_by,
-                "vote_count.gte": 100,
-                "page": 1
-            }
+            # Fetch 3 random pages across 2 sort strategies for variety every call
+            pages_to_fetch = random.sample(range(1, 6), 3)
+            fetch_tasks = []
+            for sort_by in sorts:
+                for page in pages_to_fetch:
+                    fetch_tasks.append(
+                        client.get(
+                            "https://api.themoviedb.org/3/discover/movie",
+                            params={
+                                "api_key": TMDB_API_KEY,
+                                "with_genres": ",".join(map(str, genre_ids)),
+                                "without_genres": "16,10751,10762,10770",
+                                "sort_by": sort_by,
+                                "vote_count.gte": 500,
+                                "vote_average.gte": 6.0,
+                                "primary_release_date.gte": "1990-01-01",
+                                "page": page,
+                            },
+                            timeout=8.0,
+                        )
+                    )
 
-            response = await client.get(
-                "https://api.themoviedb.org/3/discover/movie",
-                params=params,
-                timeout=5.0
+            responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+            seen_ids = set()
+            pool = []
+            for resp in responses:
+                if isinstance(resp, Exception):
+                    continue
+                for m in resp.json().get("results", []):
+                    mid = m.get("id")
+                    if not mid or mid in seen_ids:
+                        continue
+                    if not m.get("poster_path"):
+                        continue
+                    seen_ids.add(mid)
+                    pool.append(m)
+
+            # Score by vote_average * log(vote_count) — rewards popular quality films
+            def score(m):
+                avg = m.get("vote_average", 0)
+                cnt = m.get("vote_count", 1)
+                return avg * math.log(max(cnt, 1))
+
+            pool.sort(key=score, reverse=True)
+
+            # Shuffle top 60 so results differ every call
+            top_pool = pool[:60]
+            random.shuffle(top_pool)
+
+            # Get genre names
+            genre_resp = await client.get(
+                "https://api.themoviedb.org/3/genre/movie/list",
+                params={"api_key": TMDB_API_KEY},
+                timeout=5.0,
             )
+            genre_map = {g["id"]: g["name"] for g in genre_resp.json().get("genres", [])}
 
-            movies = response.json().get("results", [])
-
-            return {
-                "movies": [
-                    {
-                        "title": m["title"],
-                        "poster": f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else None,
-                        "rating": round(m.get("vote_average", 0)/2, 1),
-                        "overview": m.get("overview", "")
-                    }
-                    for m in movies[:12]
+            result_movies = []
+            for m in top_pool[:12]:
+                release_date = m.get("release_date", "")
+                year = release_date[:4] if release_date else ""
+                genre_names = [
+                    genre_map.get(gid, "")
+                    for gid in m.get("genre_ids", [])
+                    if genre_map.get(gid)
                 ]
-            }
+                result_movies.append({
+                    "title": m["title"],
+                    "poster": f"https://image.tmdb.org/t/p/w500{m['poster_path']}",
+                    "predicted_rating": round(m.get("vote_average", 0) / 2, 2),
+                    "genre": "|".join(genre_names),
+                    "year": year,
+                    "overview": m.get("overview", ""),
+                })
+
+            return {"movies": result_movies}
 
         except Exception as e:
             return {"movies": [], "error": str(e)}
