@@ -156,8 +156,10 @@ return (
           transition={{ delay: 0.15 }}
           className="text-lg text-muted-foreground max-w-2xl mx-auto"
         >
-          Powered by a hybrid content-based movie recommender using TF-IDF
-          Vectorization and Cosine Similarity with Popularity Boosting.
+          Powered by a hybrid content-based movie recommender using 
+          TF-IDF Vectorization and Cosine Similarity with Popularity Boosting, 
+          Trained on the TMDB Movies Dataset.
+          Enter a movie you like and discover similar movies you'll love!
         </motion.p>
 
         <motion.div
