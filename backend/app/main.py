@@ -457,7 +457,7 @@ async def get_similar_recent(movie_name: str):
             return {"movies": [], "error": str(e)}
 
 
-# ✅ Mood to Movie - Gemini AI
+# ✅ Mood to Movie - Gemini AI (Fixed)
 @app.post("/mood-chat")
 async def mood_chat(request: dict):
     messages = request.get("messages", [])
@@ -466,30 +466,38 @@ async def mood_chat(request: dict):
     if not GEMINI_API_KEY:
         return {"response": None, "error": "GEMINI_API_KEY not set"}
 
-    # Build Gemini conversation format
-    gemini_messages = []
+    # ✅ Inject system prompt as first exchange (works with all Gemini models)
+    gemini_messages = [
+        {
+            "role": "user",
+            "parts": [{"text": f"[SYSTEM INSTRUCTIONS]\n{MOOD_SYSTEM_PROMPT}\n[END INSTRUCTIONS]\n\nAcknowledge you understand."}]
+        },
+        {
+            "role": "model",
+            "parts": [{"text": "Understood! I'll ask fun questions one at a time to find your perfect movie. 🎬"}]
+        }
+    ]
+
+    # Add real conversation history
     for msg in messages:
         gemini_messages.append({
             "role": "user" if msg["role"] == "user" else "model",
             "parts": [{"text": msg["content"]}]
         })
 
-    # If no messages, start the conversation
-    if not gemini_messages:
-        gemini_messages = [{
+    # If no user messages yet, trigger first question
+    if not messages:
+        gemini_messages.append({
             "role": "user",
-            "parts": [{"text": "Start the mood analysis. Ask your first question."}]
-        }]
+            "parts": [{"text": "Ask me your first question!"}]
+        })
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
                 headers={"Content-Type": "application/json"},
                 json={
-                    "system_instruction": {
-                        "parts": [{"text": MOOD_SYSTEM_PROMPT}]
-                    },
                     "contents": gemini_messages,
                     "generationConfig": {
                         "maxOutputTokens": 1000,
@@ -499,12 +507,21 @@ async def mood_chat(request: dict):
                 timeout=30.0,
             )
             data = response.json()
-            text = (
-                data.get("candidates", [{}])[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text", "")
-            )
+
+            # ✅ Better parsing with full error info
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return {"response": None, "error": f"No candidates: {data}"}
+
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts:
+                return {"response": None, "error": f"No parts: {candidates[0]}"}
+
+            text = parts[0].get("text", "").strip()
+            if not text:
+                return {"response": None, "error": f"Empty text: {parts}"}
+
             return {"response": text}
+
         except Exception as e:
             return {"response": None, "error": str(e)}
