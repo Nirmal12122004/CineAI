@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { Sparkles, RotateCcw, Play } from "lucide-react";
+import { Sparkles, RotateCcw, Play, X } from "lucide-react";
 
 type Step = 0 | 1 | 2 | 3 | 4;
 
@@ -191,24 +191,26 @@ export default function MoodToMovie() {
         </AnimatePresence>
       </div>
 
-      {/* 🎬 Trailer Modal */}
-      {trailer && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="w-[90%] md:w-[70%] h-[60%] relative">
-            <iframe
-              src={trailer}
-              className="w-full h-full rounded-xl"
-              allowFullScreen
-            />
-            <button
-              onClick={() => setTrailer(null)}
-              className="absolute top-2 right-2 bg-white text-black px-3 py-1 rounded"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+     {/* 🎬 Trailer Modal - matches Index.tsx style */}
+{trailer && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+    <div className="relative w-[90%] max-w-4xl aspect-video">
+      <button
+        onClick={() => setTrailer(null)}
+        className="absolute -top-10 right-0 text-white"
+      >
+        <X size={28} />
+      </button>
+      <iframe
+        className="w-full h-full rounded-lg"
+        src={trailer}
+        title="Movie Trailer"
+        frameBorder="0"
+        allowFullScreen
+      />
+    </div>
+  </div>
+)}
     </div>
   );
 }
