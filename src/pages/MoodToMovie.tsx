@@ -69,21 +69,28 @@ export default function MoodToMovie() {
   };
 
   const parseRecommendations = (text: string): boolean => {
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return false;
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.recommendations && parsed.mood_summary) {
-        setMoodSummary(parsed.mood_summary);
-        setRecommendations(parsed.recommendations);
-        parsed.recommendations.forEach((m: MovieRecommendation) => {
-          fetchPoster(m.title);
-        });
-        return true;
-      }
-    } catch {}
-    return false;
-  };
+  try {
+    // ✅ Strip markdown code blocks before parsing
+    const cleaned = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return false;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (parsed.recommendations && parsed.mood_summary) {
+      setMoodSummary(parsed.mood_summary);
+      setRecommendations(parsed.recommendations);
+      parsed.recommendations.forEach((m: MovieRecommendation) => {
+        fetchPoster(m.title);
+      });
+      return true;
+    }
+  } catch {}
+  return false;
+};
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
