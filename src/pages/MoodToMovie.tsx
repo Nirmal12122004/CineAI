@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { Sparkles, RotateCcw, Loader2 } from "lucide-react";
+import { Sparkles, RotateCcw } from "lucide-react";
 import { MovieCard } from "@/components/MovieCard";
+import { ServerWakeLoader } from "@/components/ServerWakeLoader";
 import type { Movie } from "@/lib/mockData";
 
 type Step = 0 | 1 | 2 | 3 | 4;
@@ -17,7 +18,7 @@ export default function MoodToMovie() {
   const [serverReady, setServerReady] = useState(false);
   const [serverWaking, setServerWaking] = useState(true);
 
-  // Wake up Render server on page load
+  // Wake up Render server on page load — show loader while waiting
   useEffect(() => {
     const wake = async () => {
       try {
@@ -36,13 +37,13 @@ export default function MoodToMovie() {
   const calculateMood = async (ans: string[]) => {
     try {
       const res = await fetch(
-        `${BACKEND_URL}/mood-recommend?mood=${ans[0]}&energy=${ans[2]}&genre=${ans[1]}`
+        `${BACKEND_URL}/mood-recommend?mood=${ans[0]}&energy=${ans[2]}&genre=${ans[1]}`,
+        { signal: AbortSignal.timeout(60000) }
       );
       const data = await res.json();
 
       setMoodLabel("🎯 Perfect picks based on your mood");
 
-      // Map backend response → Movie shape that MovieCard expects
       const mapped: Movie[] = data.movies.map((m: any, i: number) => ({
         id: i + 1,
         title: m.title,
@@ -62,7 +63,6 @@ export default function MoodToMovie() {
   const handleAnswer = (value: string) => {
     const newAnswers = [...answers, value];
     setAnswers(newAnswers);
-
     if (step === 3) {
       calculateMood(newAnswers);
     } else {
@@ -81,28 +81,28 @@ export default function MoodToMovie() {
       key: "q1",
       label: "How are you feeling?",
       options: [
-        { value: "happy", emoji: "😄" },
-        { value: "sad", emoji: "😢" },
-        { value: "bored", emoji: "😑" },
-        { value: "angry", emoji: "😤" },
+        { value: "happy",  emoji: "😄" },
+        { value: "sad",    emoji: "😢" },
+        { value: "bored",  emoji: "😑" },
+        { value: "angry",  emoji: "😤" },
       ],
     },
     {
       key: "q2",
       label: "What do you want?",
       options: [
-        { value: "fun", emoji: "🎉" },
+        { value: "fun",       emoji: "🎉" },
         { value: "emotional", emoji: "💔" },
-        { value: "action", emoji: "💥" },
+        { value: "action",    emoji: "💥" },
       ],
     },
     {
       key: "q3",
       label: "Preferred vibe?",
       options: [
-        { value: "low", emoji: "🌙" },
+        { value: "low",    emoji: "🌙" },
         { value: "medium", emoji: "🌤️" },
-        { value: "high", emoji: "⚡" },
+        { value: "high",   emoji: "⚡" },
       ],
     },
   ];
@@ -127,8 +127,21 @@ export default function MoodToMovie() {
 
         <AnimatePresence mode="wait">
 
-          {/* Step 0 — Start */}
-          {step === 0 && (
+          {/* Server waking — show film reel loader */}
+          {serverWaking && (
+            <motion.div
+              key="waking"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.4 }}
+            >
+              <ServerWakeLoader message="Warming up the projector" />
+            </motion.div>
+          )}
+
+          {/* Step 0 — Start (only shown after server is ready) */}
+          {!serverWaking && step === 0 && (
             <motion.div
               key="start"
               initial={{ opacity: 0, scale: 0.95 }}
@@ -140,31 +153,20 @@ export default function MoodToMovie() {
               <p className="text-muted-foreground max-w-md mx-auto">
                 Answer 3 quick questions and we'll find the perfect movies for your mood right now.
               </p>
-
-              {serverWaking && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
-                >
-                  <Loader2 size={13} className="animate-spin text-primary" />
-                  <span>Warming up server, almost ready…</span>
-                </motion.div>
-              )}
-
-              <button
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => setStep(1)}
-                disabled={serverWaking}
-                className="bg-primary hover:bg-primary/80 disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-medium text-lg transition flex items-center gap-2 mx-auto"
+                className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-full font-medium text-lg transition flex items-center gap-2 mx-auto"
               >
                 <Sparkles size={20} />
-                {serverWaking ? "Please wait…" : "Start"}
-              </button>
+                Start
+              </motion.button>
             </motion.div>
           )}
 
           {/* Steps 1–3 — Questions */}
-          {currentQ && (
+          {!serverWaking && currentQ && (
             <motion.div
               key={currentQ.key}
               initial={{ opacity: 0, x: 40 }}
@@ -173,12 +175,12 @@ export default function MoodToMovie() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              {/* Step indicator */}
+              {/* Step progress bar */}
               <div className="flex justify-center gap-2 mb-4">
                 {[1, 2, 3].map((s) => (
                   <div
                     key={s}
-                    className={`h-1.5 w-10 rounded-full transition-all ${
+                    className={`h-1.5 w-10 rounded-full transition-all duration-500 ${
                       s <= step ? "bg-primary" : "bg-border"
                     }`}
                   />
@@ -204,21 +206,20 @@ export default function MoodToMovie() {
             </motion.div>
           )}
 
-          {/* Step 4 — Loading */}
-          {step === 4 && movies.length === 0 && (
+          {/* Step 4 — Fetching results: show loader again */}
+          {!serverWaking && step === 4 && movies.length === 0 && (
             <motion.div
-              key="loading"
+              key="fetching"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex flex-col items-center gap-4 py-20"
+              exit={{ opacity: 0 }}
             >
-              <Loader2 size={36} className="animate-spin text-primary" />
-              <p className="text-muted-foreground text-sm">Finding your perfect movies…</p>
+              <ServerWakeLoader message="Finding your perfect movies" />
             </motion.div>
           )}
 
           {/* Step 4 — Results */}
-          {step === 4 && movies.length > 0 && (
+          {!serverWaking && step === 4 && movies.length > 0 && (
             <motion.div
               key="result"
               initial={{ opacity: 0, y: 20 }}
@@ -230,7 +231,6 @@ export default function MoodToMovie() {
                 <h2 className="font-display text-2xl text-foreground">{moodLabel}</h2>
               </div>
 
-              {/* MovieCards — same grid as Index.tsx */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5 text-left">
                 {movies.map((movie, i) => (
                   <MovieCard key={movie.id} movie={movie} index={i} />
