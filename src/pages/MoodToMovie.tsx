@@ -10,7 +10,7 @@ interface Movie {
   reason: string;
 }
 
-const BACKEND_URL = "https://cineai-backend-8ark.onrender.com"; // 🔁 replace after deploy
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com"; // 🔁 replace this
 
 // 🎬 Movie DB
 const MOVIE_DB: Record<string, Movie[]> = {
@@ -36,7 +36,7 @@ const MOVIE_DB: Record<string, Movie[]> = {
   ],
 };
 
-// 🔐 Fetch poster from backend (SECURE)
+// 🔐 Fetch poster from backend
 const fetchPoster = async (title: string) => {
   try {
     const res = await fetch(
@@ -44,7 +44,8 @@ const fetchPoster = async (title: string) => {
     );
     const data = await res.json();
     return data.poster;
-  } catch {
+  } catch (err) {
+    console.error("Poster fetch error:", err);
     return null;
   }
 };
@@ -55,12 +56,12 @@ export default function MoodToMovie() {
   const [movies, setMovies] = useState<any[]>([]);
   const [moodLabel, setMoodLabel] = useState("");
 
-  // 🎬 Trailer
+  // 🎬 Trailer (same tab)
   const playTrailer = (title: string) => {
     const query = encodeURIComponent(`${title} official trailer`);
     window.open(
       `https://www.youtube.com/results?search_query=${query}`,
-      "_blank"
+      "_self"
     );
   };
 
@@ -78,7 +79,7 @@ export default function MoodToMovie() {
 
     const baseMovies = MOVIE_DB[key] || MOVIE_DB["happy_fun"];
 
-    // 🔥 Fetch posters securely from backend
+    // 🔥 Fetch posters
     const enriched = await Promise.all(
       baseMovies.map(async (m) => ({
         ...m,
@@ -94,7 +95,7 @@ export default function MoodToMovie() {
     const newAnswers = [...answers, value];
     setAnswers(newAnswers);
 
-    if (step === 2) {
+    if (step === 3) {
       calculateMood(newAnswers);
     } else {
       setStep((prev) => (prev + 1) as Step);
@@ -162,10 +163,26 @@ export default function MoodToMovie() {
             </motion.div>
           )}
 
+          {/* Q3 (NEW) */}
+          {step === 3 && (
+            <motion.div key="q3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h2 className="text-xl mt-10 mb-4">Preferred vibe?</h2>
+              <div className="grid gap-3 max-w-sm mx-auto">
+                {["light", "intense"].map((m) => (
+                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
           {/* Results */}
           {step === 4 && (
             <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-2xl mt-6 mb-6">{moodLabel}</h2>
+              <h2 className="text-2xl mt-6 mb-6">
+                🎯 Based on your mood, here are perfect movies for you
+              </h2>
 
               <div className="grid md:grid-cols-3 gap-6">
                 {movies.map((movie) => (
@@ -175,7 +192,7 @@ export default function MoodToMovie() {
                     className="bg-card rounded-xl overflow-hidden shadow-lg"
                   >
                     <img
-                      src={movie.poster || "/placeholder.png"}
+                      src={movie.poster || "https://via.placeholder.com/300x450"}
                       className="w-full h-72 object-cover"
                     />
 
