@@ -31,17 +31,34 @@ export default function MoodToMovie() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const callGemini = async (msgs: Message[]): Promise<string | null> => {
+  const callGemini = async (msgs: Message[], attempt = 0): Promise<string | null> => {
+    const MAX_RETRIES = 3;
+    const TIMEOUT_MS = 20000; // 20s — enough for cold-start on Render free tier
+
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
       const response = await fetch(`${BACKEND_URL}/mood-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: msgs }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timer);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
       const data = await response.json();
       return data.response || null;
-    } catch (err) {
-      console.error("Mood chat error:", err);
+    } catch (err: any) {
+      console.error(`Mood chat error (attempt ${attempt + 1}):`, err);
+      if (attempt < MAX_RETRIES - 1) {
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        return callGemini(msgs, attempt + 1);
+      }
       return null;
     }
   };
@@ -52,6 +69,11 @@ export default function MoodToMovie() {
     const firstMessage = await callGemini([]);
     if (firstMessage) {
       setMessages([{ role: "assistant", content: firstMessage }]);
+    } else {
+      setMessages([{
+        role: "assistant",
+        content: "⚠️ Couldn't connect to the server. Please check your connection and try again.",
+      }]);
     }
     setLoading(false);
   };
@@ -71,13 +93,10 @@ export default function MoodToMovie() {
   const parseRecommendations = (text: string): boolean => {
     try {
       // Strip markdown code fences
-      const cleaned = text
-        .replace(/```json/gi, "")
-        .replace(/```/g, "")
-        .trim();
+      const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-      // Find the outermost { ... } by tracking brace depth
-      // This handles leading conversational prose before the JSON blob
+      // Use brace-depth tracking to find the outermost {...}
+      // Handles leading conversational prose before the JSON blob
       const start = cleaned.indexOf("{");
       if (start === -1) return false;
 
@@ -87,24 +106,16 @@ export default function MoodToMovie() {
         if (cleaned[i] === "{") depth++;
         else if (cleaned[i] === "}") {
           depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
+          if (depth === 0) { end = i; break; }
         }
       }
-
       if (end === -1) return false;
 
-      const jsonStr = cleaned.slice(start, end + 1);
-      const parsed = JSON.parse(jsonStr);
-
+      const parsed = JSON.parse(cleaned.slice(start, end + 1));
       if (parsed.recommendations && parsed.mood_summary) {
         setMoodSummary(parsed.mood_summary);
         setRecommendations(parsed.recommendations);
-        parsed.recommendations.forEach((m: MovieRecommendation) => {
-          fetchPoster(m.title);
-        });
+        parsed.recommendations.forEach((m: MovieRecommendation) => fetchPoster(m.title));
         return true;
       }
     } catch {}
@@ -127,6 +138,14 @@ export default function MoodToMovie() {
       if (!isRecommendation) {
         setMessages([...newMessages, { role: "assistant", content: response }]);
       }
+    } else {
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: "⚠️ No response from server. Please try again.",
+        },
+      ]);
     }
 
     setLoading(false);
