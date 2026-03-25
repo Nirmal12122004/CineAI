@@ -10,9 +10,9 @@ interface Movie {
   reason: string;
 }
 
-const TMDB_IMAGE = "https://image.tmdb.org/t/p/w500";
+const BACKEND_URL = "https://cineai-backend-8ark.onrender.com"; // 🔁 replace after deploy
 
-// 🎬 Expanded Movie DB with IDs (for posters)
+// 🎬 Movie DB
 const MOVIE_DB: Record<string, Movie[]> = {
   happy_fun: [
     { title: "Zindagi Na Milegi Dobara", reason: "Feel-good friendship vibes" },
@@ -36,18 +36,14 @@ const MOVIE_DB: Record<string, Movie[]> = {
   ],
 };
 
-// 🔥 Poster fetch (TMDB API)
+// 🔐 Fetch poster from backend (SECURE)
 const fetchPoster = async (title: string) => {
   try {
     const res = await fetch(
-      `https://api.themoviedb.org/3/search/movie?api_key=33a1bdb6830ef7bf349e480fc07cef3c&query=${encodeURIComponent(
-        title
-      )}`
+      `${BACKEND_URL}/poster?title=${encodeURIComponent(title)}`
     );
     const data = await res.json();
-    return data.results?.[0]?.poster_path
-      ? TMDB_IMAGE + data.results[0].poster_path
-      : null;
+    return data.poster;
   } catch {
     return null;
   }
@@ -59,10 +55,13 @@ export default function MoodToMovie() {
   const [movies, setMovies] = useState<any[]>([]);
   const [moodLabel, setMoodLabel] = useState("");
 
-  // 🎬 Trailer (fixed accurate search)
+  // 🎬 Trailer
   const playTrailer = (title: string) => {
     const query = encodeURIComponent(`${title} official trailer`);
-    window.open(`https://www.youtube.com/results?search_query=${query}`, "_blank");
+    window.open(
+      `https://www.youtube.com/results?search_query=${query}`,
+      "_blank"
+    );
   };
 
   const calculateMood = async (ans: string[]) => {
@@ -79,7 +78,7 @@ export default function MoodToMovie() {
 
     const baseMovies = MOVIE_DB[key] || MOVIE_DB["happy_fun"];
 
-    // 🔥 Fetch posters
+    // 🔥 Fetch posters securely from backend
     const enriched = await Promise.all(
       baseMovies.map(async (m) => ({
         ...m,
@@ -113,7 +112,6 @@ export default function MoodToMovie() {
       <AppHeader />
 
       <div className="container py-10 max-w-5xl mx-auto text-center">
-
         {/* Header */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <h1 className="text-4xl font-display">
@@ -122,7 +120,6 @@ export default function MoodToMovie() {
         </motion.div>
 
         <AnimatePresence mode="wait">
-
           {/* Start */}
           {step === 0 && (
             <motion.button
@@ -207,7 +204,6 @@ export default function MoodToMovie() {
               </button>
             </motion.div>
           )}
-
         </AnimatePresence>
       </div>
     </div>
