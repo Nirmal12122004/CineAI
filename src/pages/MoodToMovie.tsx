@@ -1,216 +1,355 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { Sparkles, RotateCcw, Play, X } from "lucide-react";
-
-type Step = 0 | 1 | 2 | 3 | 4;
-
-interface Movie {
-  title: string;
-  poster: string | null;
-  reason: string;
-}
+import { MovieCard } from "@/components/MovieCard";
+import { Sparkles, Send, RotateCcw, AlertCircle } from "lucide-react";
+import type { Movie } from "@/lib/mockData";
 
 const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface MovieRecommendation {
+  title: string;
+  reason: string;
+  genre: string;
+  year: string;
+}
+
 export default function MoodToMovie() {
-  const [step, setStep] = useState<Step>(0);
-  const [answers, setAnswers] = useState<string[]>([]);
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [trailer, setTrailer] = useState<string | null>(null);
-  const [moodLabel, setMoodLabel] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [recommendations, setRecommendations] = useState<Movie[]>([]);
+  const [moodSummary, setMoodSummary] = useState("");
+  const [started, setStarted] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 🎯 Fetch recommendations from backend
-  const calculateMood = async (ans: string[]) => {
-    try {
-      const res = await fetch(
-        `${BACKEND_URL}/mood-recommend?mood=${ans[0]}&energy=${ans[2]}&genre=${ans[1]}`
-      );
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
-      const data = await res.json();
+  // ✅ Retry logic - tries up to 3 times
+  const callGemini = async (msgs: Message[], retries = 3): Promise<string | null> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 25000);
 
-      setMoodLabel("🎯 Perfect picks based on your mood");
+        const response = await fetch(`${BACKEND_URL}/mood-chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: msgs }),
+          signal: controller.signal,
+        });
 
-      setMovies(
-        data.movies.map((m: any) => ({
-          title: m.title,
-          poster: m.poster,
-          reason: m.overview || "Perfect match for your mood",
-        }))
-      );
+        clearTimeout(timeout);
+        const data = await response.json();
 
-      setStep(4);
-    } catch (err) {
-      console.error("Recommendation error:", err);
-    }
-  };
+        if (data.response) return data.response;
 
-  // 🎬 Trailer inside app (modal)
-  const playTrailer = async (title: string) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/trailer/${title}`);
-      const data = await res.json();
+        if (data.error?.includes("429") || data.error?.includes("quota")) {
+          setError("AI quota exceeded. Please try again later.");
+          return null;
+        }
 
-      if (data.trailer_key) {
-        setTrailer(`https://www.youtube.com/embed/${data.trailer_key}`);
+        if (attempt < retries) await new Promise(r => setTimeout(r, 1500 * attempt));
+
+      } catch (err: any) {
+        if (err.name === "AbortError") {
+          if (attempt < retries) continue;
+          setError("Request timed out. Please try again.");
+          return null;
+        }
+        if (attempt < retries) await new Promise(r => setTimeout(r, 1500));
       }
-    } catch (err) {
-      console.error(err);
     }
+    setError("Failed to get response. Please try again.");
+    return null;
   };
 
-  const handleAnswer = (value: string) => {
-    const newAnswers = [...answers, value];
-    setAnswers(newAnswers);
-
-    if (step === 3) {
-      calculateMood(newAnswers);
-    } else {
-      setStep((prev) => (prev + 1) as Step);
+  const startConversation = async () => {
+    setStarted(true);
+    setLoading(true);
+    setError("");
+    const firstMessage = await callGemini([]);
+    if (firstMessage) {
+      setMessages([{ role: "assistant", content: firstMessage }]);
     }
+    setLoading(false);
+  };
+
+  // ✅ Fetch poster + details from TMDB via backend
+  const fetchMovieDetails = async (title: string, year: string): Promise<Movie> => {
+    try {
+      const cleanTitle = title.replace(/\s*\(\d{4}\)\s*$/, "").trim();
+      const searchQuery = year ? `${cleanTitle} ${year}` : cleanTitle;
+
+      const res = await fetch(
+        `${BACKEND_URL}/movie-details-by-title/${encodeURIComponent(searchQuery)}`
+      );
+      const data = await res.json();
+
+      if (data.id) {
+        return {
+          id: data.id,
+          title: data.title || title,
+          predicted_rating: data.vote_average || 0,
+          genre: data.genres?.join("|") || "Unknown",
+          year: data.release_date ? parseInt(data.release_date.slice(0, 4)) : undefined,
+          poster: data.poster || undefined,
+        };
+      }
+    } catch {}
+
+    // Fallback
+    return {
+      id: Math.random(),
+      title,
+      predicted_rating: 0,
+      genre: "Unknown",
+      year: parseInt(year) || undefined,
+      poster: undefined,
+    };
+  };
+
+  const parseRecommendations = async (text: string): Promise<boolean> => {
+    try {
+      const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return false;
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.recommendations && parsed.mood_summary) {
+        setMoodSummary(parsed.mood_summary);
+
+        // ✅ Fetch full movie details for all recommended movies concurrently
+        const moviePromises = parsed.recommendations.map((m: MovieRecommendation) =>
+          fetchMovieDetails(m.title, m.year)
+        );
+        const movies = await Promise.all(moviePromises);
+        setRecommendations(movies);
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+
+    const userMessage: Message = { role: "user", content: input.trim() };
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInput("");
+    setLoading(true);
+    setError("");
+
+    const response = await callGemini(newMessages);
+
+    if (response) {
+      const isRecommendation = await parseRecommendations(response);
+      if (!isRecommendation) {
+        setMessages([...newMessages, { role: "assistant", content: response }]);
+      }
+    }
+
+    setLoading(false);
   };
 
   const reset = () => {
-    setStep(0);
-    setAnswers([]);
-    setMovies([]);
-    setTrailer(null);
+    setMessages([]);
+    setRecommendations([]);
+    setMoodSummary("");
+    setStarted(false);
+    setInput("");
+    setError("");
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
+    <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <div className="container py-10 max-w-5xl mx-auto text-center">
+      <div className="container py-10 max-w-2xl mx-auto">
+
         {/* Header */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <h1 className="text-4xl font-display">
-            Mood to <span className="text-gradient">Movie</span>
-          </h1>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8 space-y-2"
+        >
+          <div className="flex items-center justify-center gap-2">
+            <Sparkles className="h-6 w-6 text-primary" />
+            <h1 className="font-display text-4xl text-foreground">
+              Mood to <span className="text-gradient">Movie</span>
+            </h1>
+          </div>
+          <p className="text-muted-foreground">
+            Tell AI how you feel — get perfect movie recommendations
+          </p>
         </motion.div>
 
-        <AnimatePresence mode="wait">
-          {/* Start */}
-          {step === 0 && (
-            <motion.button
-              key="start"
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setStep(1)}
-              className="mt-10 bg-primary text-white px-8 py-3 rounded-full flex items-center gap-2 mx-auto"
+        {/* Start Screen */}
+        {!started && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center space-y-6 py-10"
+          >
+            <div className="text-6xl">🎭</div>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              Our AI will ask you a few fun questions to understand your
+              current mood and recommend the perfect movies for you right now.
+            </p>
+            <button
+              onClick={startConversation}
+              className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-full font-medium text-lg transition flex items-center gap-2 mx-auto"
             >
-              <Sparkles size={18} /> Start
-            </motion.button>
-          )}
+              <Sparkles size={20} />
+              Discover My Movies
+            </button>
+          </motion.div>
+        )}
 
-          {/* Q1 */}
-          {step === 1 && (
-            <motion.div key="q1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-xl mt-10 mb-4">How are you feeling?</h2>
-              <div className="grid gap-3 max-w-sm mx-auto">
-                {["happy", "sad", "bored", "angry"].map((m) => (
-                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Q2 */}
-          {step === 2 && (
-            <motion.div key="q2" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-xl mt-10 mb-4">What do you want?</h2>
-              <div className="grid gap-3 max-w-sm mx-auto">
-                {["fun", "emotional", "action"].map((m) => (
-                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Q3 */}
-          {step === 3 && (
-            <motion.div key="q3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-xl mt-10 mb-4">Preferred vibe?</h2>
-              <div className="grid gap-3 max-w-sm mx-auto">
-                {["low", "medium", "high"].map((m) => (
-                  <button key={m} onClick={() => handleAnswer(m)} className="btn">
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Results */}
-          {step === 4 && (
-            <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h2 className="text-2xl mt-6 mb-6">{moodLabel}</h2>
-
-              <div className="grid md:grid-cols-3 gap-6">
-                {movies.map((movie) => (
+        {/* Chat Interface */}
+        {started && recommendations.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="space-y-4"
+          >
+            <div className="space-y-4 min-h-64 max-h-96 overflow-y-auto pr-2">
+              <AnimatePresence>
+                {messages.map((msg, i) => (
                   <motion.div
-                    key={movie.title}
-                    whileHover={{ scale: 1.05 }}
-                    className="bg-card rounded-xl overflow-hidden shadow-lg"
+                    key={i}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
-                    <img
-                      src={movie.poster || "https://via.placeholder.com/300x450"}
-                      className="w-full h-72 object-cover"
-                    />
-
-                    <div className="p-4 text-left">
-                      <h3 className="font-semibold">{movie.title}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {movie.reason}
-                      </p>
-
-                      <button
-                        onClick={() => playTrailer(movie.title)}
-                        className="mt-3 flex items-center gap-2 text-primary"
-                      >
-                        <Play size={16} /> Watch Trailer
-                      </button>
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                        msg.role === "user"
+                          ? "bg-primary text-white rounded-br-sm"
+                          : "bg-card border border-border text-foreground rounded-bl-sm"
+                      }`}
+                    >
+                      {msg.role === "assistant" && (
+                        <div className="flex items-center gap-1 mb-1">
+                          <Sparkles size={12} className="text-primary" />
+                          <span className="text-xs text-primary font-medium">CineAI</span>
+                        </div>
+                      )}
+                      {msg.content}
                     </div>
                   </motion.div>
                 ))}
-              </div>
+              </AnimatePresence>
 
+              {/* Loading dots */}
+              {loading && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex justify-start"
+                >
+                  <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-3">
+                    <div className="flex gap-1 items-center">
+                      {[0, 1, 2].map((i) => (
+                        <motion.div
+                          key={i}
+                          className="w-2 h-2 rounded-full bg-primary"
+                          animate={{ y: [0, -6, 0] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
+                        />
+                      ))}
+                      <span className="text-xs text-muted-foreground ml-2">AI is thinking...</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Error */}
+              {error && !loading && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-lg px-4 py-3"
+                >
+                  <AlertCircle size={16} />
+                  {error}
+                </motion.div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Input */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                placeholder="Type your answer..."
+                disabled={loading}
+                className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+              />
               <button
-                onClick={reset}
-                className="mt-8 border px-6 py-2 rounded-full flex items-center gap-2 mx-auto"
+                onClick={sendMessage}
+                disabled={loading || !input.trim()}
+                className="bg-primary hover:bg-primary/80 disabled:opacity-50 text-white rounded-full p-3 transition"
               >
-                <RotateCcw size={16} /> Try Again
+                <Send size={18} />
               </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            </div>
+          </motion.div>
+        )}
 
-     {/* 🎬 Trailer Modal - matches Index.tsx style */}
-{trailer && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-    <div className="relative w-[90%] max-w-4xl aspect-video">
-      <button
-        onClick={() => setTrailer(null)}
-        className="absolute -top-10 right-0 text-white"
-      >
-        <X size={28} />
-      </button>
-      <iframe
-        className="w-full h-full rounded-lg"
-        src={trailer}
-        title="Movie Trailer"
-        frameBorder="0"
-        allowFullScreen
-      />
-    </div>
-  </div>
-)}
+        {/* ✅ Recommendations using MovieCard - same as home page */}
+        {recommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Mood Summary */}
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-5 text-center space-y-2">
+              <div className="text-3xl">🎭</div>
+              <p className="text-sm text-muted-foreground">Your current mood</p>
+              <p className="font-display text-lg text-foreground italic">"{moodSummary}"</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h2 className="font-display text-2xl text-foreground">
+                Perfect Movies <span className="text-gradient">For You Right Now</span>
+              </h2>
+            </div>
+
+            {/* ✅ Same grid as home page recommendations */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+              {recommendations.map((movie, i) => (
+                <MovieCard key={movie.id} movie={movie} index={i} />
+              ))}
+            </div>
+
+            {/* Reset Button */}
+            <button
+              onClick={reset}
+              className="w-full flex items-center justify-center gap-2 rounded-full border border-border bg-card hover:bg-accent text-foreground px-6 py-3 text-sm font-medium transition"
+            >
+              <RotateCcw size={16} />
+              Analyze My Mood Again
+            </button>
+          </motion.div>
+        )}
+
+      </div>
     </div>
   );
 }
