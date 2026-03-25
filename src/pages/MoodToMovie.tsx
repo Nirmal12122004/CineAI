@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
-import { Sparkles, Send, RotateCcw, Film } from "lucide-react";
+import { Sparkles, Send, RotateCcw, Film, Loader2 } from "lucide-react";
 
 const BACKEND_URL = "https://cineai-backend-8ark.onrender.com";
 
@@ -25,7 +25,27 @@ export default function MoodToMovie() {
   const [moodSummary, setMoodSummary] = useState("");
   const [posters, setPosters] = useState<Record<string, string>>({});
   const [started, setStarted] = useState(false);
+  const [serverReady, setServerReady] = useState(false);
+  const [serverWaking, setServerWaking] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Wake up Render server immediately on page load — before the user clicks anything.
+  // Render free tier can take 30–50s to cold-start; this hides that wait.
+  useEffect(() => {
+    const wake = async () => {
+      try {
+        await fetch(`${BACKEND_URL}/health`, {
+          signal: AbortSignal.timeout(60000),
+        });
+      } catch {
+        // Even on failure, let user try — the main call has its own retries
+      } finally {
+        setServerReady(true);
+        setServerWaking(false);
+      }
+    };
+    wake();
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -33,7 +53,7 @@ export default function MoodToMovie() {
 
   const callGemini = async (msgs: Message[], attempt = 0): Promise<string | null> => {
     const MAX_RETRIES = 3;
-    const TIMEOUT_MS = 20000; // 20s — enough for cold-start on Render free tier
+    const TIMEOUT_MS = 60000; // 60s — covers Render cold-start fully
 
     try {
       const controller = new AbortController();
@@ -55,7 +75,6 @@ export default function MoodToMovie() {
     } catch (err: any) {
       console.error(`Mood chat error (attempt ${attempt + 1}):`, err);
       if (attempt < MAX_RETRIES - 1) {
-        // Exponential backoff: 1s, 2s, 4s
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
         return callGemini(msgs, attempt + 1);
       }
@@ -72,7 +91,7 @@ export default function MoodToMovie() {
     } else {
       setMessages([{
         role: "assistant",
-        content: "⚠️ Couldn't connect to the server. Please check your connection and try again.",
+        content: "⚠️ Server is taking too long to respond. Please wait a moment and try again.",
       }]);
     }
     setLoading(false);
@@ -92,11 +111,8 @@ export default function MoodToMovie() {
 
   const parseRecommendations = (text: string): boolean => {
     try {
-      // Strip markdown code fences
       const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-      // Use brace-depth tracking to find the outermost {...}
-      // Handles leading conversational prose before the JSON blob
       const start = cleaned.indexOf("{");
       if (start === -1) return false;
 
@@ -195,12 +211,26 @@ export default function MoodToMovie() {
               Our AI will ask you a few fun questions to understand your
               current mood and recommend the perfect movies for you right now.
             </p>
+
+            {/* Server waking status */}
+            {serverWaking && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
+              >
+                <Loader2 size={13} className="animate-spin text-primary" />
+                <span>Warming up server, almost ready…</span>
+              </motion.div>
+            )}
+
             <button
               onClick={startConversation}
-              className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-full font-medium text-lg transition flex items-center gap-2 mx-auto"
+              disabled={serverWaking}
+              className="bg-primary hover:bg-primary/80 disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-medium text-lg transition flex items-center gap-2 mx-auto"
             >
               <Sparkles size={20} />
-              Discover My Movies
+              {serverWaking ? "Please wait…" : "Discover My Movies"}
             </button>
           </motion.div>
         )}
