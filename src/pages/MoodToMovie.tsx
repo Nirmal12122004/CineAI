@@ -28,18 +28,14 @@ export default function MoodToMovie() {
   const [serverWaking, setServerWaking] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 🔥 Wake server immediately
+  // 🔥 Wake server on load
   useEffect(() => {
-    const wake = async () => {
-      try {
-        await fetch(`${BACKEND_URL}/health`);
-      } catch {}
-      setServerWaking(false);
-    };
-    wake();
+    fetch(`${BACKEND_URL}/health`)
+      .catch(() => {})
+      .finally(() => setServerWaking(false));
   }, []);
 
-  // 🔥 Keep server alive (prevents cold start)
+  // 🔥 Keep server alive
   useEffect(() => {
     const interval = setInterval(() => {
       fetch(`${BACKEND_URL}/health`).catch(() => {});
@@ -53,7 +49,7 @@ export default function MoodToMovie() {
 
   const callGemini = async (msgs: Message[], attempt = 0): Promise<string | null> => {
     const MAX_RETRIES = 3;
-    const TIMEOUT_MS = 15000;
+    const TIMEOUT_MS = 45000; // ✅ fixed
 
     try {
       const controller = new AbortController();
@@ -72,7 +68,7 @@ export default function MoodToMovie() {
 
       const data = await response.json();
       return data.response || null;
-    } catch (err) {
+    } catch {
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
         return callGemini(msgs, attempt + 1);
@@ -87,14 +83,14 @@ export default function MoodToMovie() {
 
     const firstMessage = await callGemini([]);
 
-    if (firstMessage) {
-      setMessages([{ role: "assistant", content: firstMessage }]);
-    } else {
-      setMessages([{
+    setMessages([
+      {
         role: "assistant",
-        content: "⚠️ Server is slow right now. Try again.",
-      }]);
-    }
+        content:
+          firstMessage ||
+          "⏳ Server is waking up... please wait a few seconds and try again.",
+      },
+    ]);
 
     setLoading(false);
   };
@@ -123,9 +119,13 @@ export default function MoodToMovie() {
         if (cleaned[i] === "{") depth++;
         else if (cleaned[i] === "}") {
           depth--;
-          if (depth === 0) { end = i; break; }
+          if (depth === 0) {
+            end = i;
+            break;
+          }
         }
       }
+
       if (end === -1) return false;
 
       const parsed = JSON.parse(cleaned.slice(start, end + 1));
@@ -151,19 +151,19 @@ export default function MoodToMovie() {
     setInput("");
     setLoading(true);
 
-    // ⏳ Show message if slow
+    // ⏳ Friendly delay message
     const timeout = setTimeout(() => {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "⏳ Still working... server is waking up. Please wait a few seconds.",
+          content:
+            "⏳ Still working... server is waking up. Please wait a few seconds.",
         },
       ]);
-    }, 5000);
+    }, 6000);
 
     const response = await callGemini(newMessages);
-
     clearTimeout(timeout);
 
     if (response) {
@@ -176,7 +176,8 @@ export default function MoodToMovie() {
         ...newMessages,
         {
           role: "assistant",
-          content: "⚠️ Server is slow right now. Try again.",
+          content:
+            "⚠️ Server is busy right now. Please try again in a moment.",
         },
       ]);
     }
@@ -198,7 +199,6 @@ export default function MoodToMovie() {
       <AppHeader />
 
       <div className="container py-10 max-w-2xl mx-auto">
-
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -218,7 +218,7 @@ export default function MoodToMovie() {
 
         {/* Start Screen */}
         {!started && (
-          <div className="text-center space-y-6 py-10">
+          <motion.div className="text-center space-y-6 py-10">
             <div className="text-6xl">🎭</div>
 
             {serverWaking && (
@@ -230,28 +230,44 @@ export default function MoodToMovie() {
 
             <button
               onClick={startConversation}
-              className="bg-primary text-white px-8 py-3 rounded-full"
+              className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-full font-medium text-lg"
             >
               Discover My Movies
             </button>
-          </div>
+          </motion.div>
         )}
 
         {/* Chat UI */}
         {started && recommendations.length === 0 && (
-          <div className="space-y-4">
+          <motion.div className="space-y-4">
             <div className="space-y-4 max-h-96 overflow-y-auto">
               <AnimatePresence>
                 {messages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className="bg-card px-4 py-3 rounded-2xl">
+                  <motion.div
+                    key={i}
+                    className={`flex ${
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+                        msg.role === "user"
+                          ? "bg-primary text-white"
+                          : "bg-card border border-border text-foreground"
+                      }`}
+                    >
                       {msg.content}
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </AnimatePresence>
 
-              {loading && <div className="text-sm text-muted">Typing...</div>}
+              {loading && (
+                <div className="text-sm text-muted-foreground">
+                  Thinking...
+                </div>
+              )}
+
               <div ref={bottomRef} />
             </div>
 
@@ -260,31 +276,43 @@ export default function MoodToMovie() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                className="flex-1 border px-4 py-2 rounded-full"
+                placeholder="Type your answer..."
+                className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm"
               />
-              <button onClick={sendMessage}>
-                <Send />
+              <button
+                onClick={sendMessage}
+                className="bg-primary text-white rounded-full p-3"
+              >
+                <Send size={18} />
               </button>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Recommendations */}
         {recommendations.length > 0 && (
-          <div className="space-y-4">
-            <h2>{moodSummary}</h2>
+          <motion.div className="space-y-6">
+            <div className="text-center">
+              <p className="italic text-foreground">"{moodSummary}"</p>
+            </div>
 
             {recommendations.map((movie) => (
-              <div key={movie.title} className="border p-3 rounded">
-                <h3>{movie.title}</h3>
-                <p>{movie.reason}</p>
+              <div key={movie.title} className="border p-4 rounded-xl">
+                <h3 className="font-semibold">{movie.title}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {movie.reason}
+                </p>
               </div>
             ))}
 
-            <button onClick={reset}>Reset</button>
-          </div>
+            <button
+              onClick={reset}
+              className="w-full border rounded-full py-2"
+            >
+              Reset
+            </button>
+          </motion.div>
         )}
-
       </div>
     </div>
   );
